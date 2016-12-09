@@ -12,6 +12,8 @@
 #include "gzip.hpp"
 #include <boost/program_options.hpp>
 
+#define MAX_LEN 256
+
 using namespace std;
 namespace po = boost::program_options;
 
@@ -288,6 +290,12 @@ Metrics analysisLoop(
     size_t coord_to_seq_offset = header.size() - end_coords + 1;
 
     size_t seq_len = sequence.size();
+    if (seq_len >= MAX_LEN) {
+        cerr << "Sequence is too long, max supported is: " << MAX_LEN << "." << endl;
+        Metrics m;
+        m.error = true;
+        return m;
+    }
 
     // Read identifier prefix (before coordinates)
     char read_id[2][start_to_coord_offset];
@@ -297,6 +305,7 @@ Metrics analysisLoop(
     const size_t pad_to = sizeof(unsigned long) * 4;
     const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
     char* seq_data = new char[buf_size];
+    char* linebuf = new char[MAX_LEN];
     sequence.copy(seq_data, str_len, str_start);
 
     input.ignore(3 + seq_len); // Ignores "+\n" line & quality and \n
@@ -323,7 +332,7 @@ Metrics analysisLoop(
             // any characters at the start of the sequence
             char colon_test;
             input >> x >> colon_test >> y;
-            input.ignore(coord_to_seq_offset + str_start);
+            input.ignore(coord_to_seq_offset);
 
             if (colon_test != ':') {
                 cerr << "Invalid file format detected. All reads must be of the same length, "
@@ -334,13 +343,17 @@ Metrics analysisLoop(
             }
 
             // Read sequence substring
-            input.read(seq_data, str_len);
+            input.getline(linebuf, MAX_LEN);
 
+            // Number of characters read including end of line
+            size_t num_read = input.gcount();
             // Ignore to the end of the sequence, then the quality, to the end of the record
-            size_t remain = seq_len - str_len - str_start;
-            input.ignore(remain + 4 + seq_len); // Ignores "xxx\n+\nquality string\n"
+            input.ignore(2 + num_read); // Ignores "+\nquality string\n"
 
-            analysisHead.enterPoint(x, y, seq_data);
+            if (num_read >= 1 + str_len + str_start) {
+                memcpy(seq_data, linebuf + str_start, str_len);
+                analysisHead.enterPoint(x, y, seq_data);
+            }
 
             if (analysisHead.metrics.num_reads % 1000000 == 0)
                 cerr << "Analysed " << setw(9) << analysisHead.metrics.num_reads
@@ -365,9 +378,9 @@ int main(int argc, char* argv[]) {
     visible.add_options()
         ("winx,x", po::value<unsigned int>(&winx)->default_value(2500), "x coordinate window, +/- pixels")
         ("winy,y", po::value<unsigned int>(&winy)->default_value(2500), "y coordinate window, +/- pixels")
-        ("start,s", po::value<int>(&first_base)->default_value(0),
+        ("start,s", po::value<int>(&first_base)->default_value(10),
             "First base position in reads to consider")
-        ("end,e", po::value<int>(&last_base)->default_value(-1), 
+        ("end,e", po::value<int>(&last_base)->default_value(60), 
             "Last base position in reads to consider (use -1 for all bases)")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
             "Hash table size (bytes), *must* be a power of 2. (increase if winy>2500).")
@@ -437,11 +450,10 @@ int main(int argc, char* argv[]) {
 
     size_t seq_len = sequence.size();
     // Read index within the sequence string (i.e. nucleotide position)
-    size_t str_start = min((size_t)first_base, seq_len);
     if (last_base == -1) last_base = seq_len;
-    size_t str_len = min(seq_len - str_start, (size_t)(last_base - str_start));
+    size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
 
-    cerr << "Using bases from " << str_start << " to " << str_start+str_len << endl;
+    cerr << "Using bases from " << first_base << " to " << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
     Metrics result;
@@ -452,27 +464,27 @@ int main(int argc, char* argv[]) {
     }
     else if (str_len > 128) {
         result = analysisLoop<TwoBitSequence<5>>(
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 96) {
         result = analysisLoop<TwoBitSequence<4>>(
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 64) {
         result = analysisLoop<TwoBitSequence<3>>(
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 32) {
         result = analysisLoop<TwoBitSequence<2>>(
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 0) {
         result = analysisLoop<TwoBitSequence<1>>(
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else {
