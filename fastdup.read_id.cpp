@@ -12,13 +12,14 @@
 #include "gzip.hpp"
 #include <boost/program_options.hpp>
 
+#define MAX_LEN 256
+
 using namespace std;
 namespace po = boost::program_options;
 
 class InputSelector {
-    // InputSelector class sets up the input stream based on 
-    // command line arguments.
-    // Selects STDIN or opens a file, and detects GZIP compressed data.
+    // InputSelector class sets up the input stream to STDIN or opens a file,
+    // and detects GZIP compressed data.
     private:
         istream* raw_input, *input_ptr;
         unique_ptr<istream> filtered_input;
@@ -104,8 +105,8 @@ public:
          *
          * The handling of N was added later.
          */
-	const unsigned long* blocks = (const unsigned long*) seq;
-	for (size_t i=0; i<N; ++i) {
+        const unsigned long* blocks = (const unsigned long*) seq;
+        for (size_t i=0; i<N; ++i) {
             data[i] = (blocks[i*4] & (0x0606060606060606ul)) >> 1;
             size_t j;
             for (j=0; j<3; ++j) {
@@ -124,7 +125,7 @@ public:
             for (; jshift<4+nshift; ++jshift) {
                 unk[i/2] |= (blocks[i*4+(j++)] & (0x0808080808080808ul)) << (jshift-3);
             }
-	}
+        }
     }
 
     inline bool operator==(const TwoBitSequence& other) const {
@@ -132,7 +133,7 @@ public:
             if (data[i] != other.data[i]) 
                 return false;
         }
-        for (int i=0; i<sizeof(unk)/sizeof(unsigned long); ++i) {
+        for (int i=0; i<(N+1)/2; ++i) {
             if (unk[i] != other.unk[i])
                 return false;
         }
@@ -153,6 +154,8 @@ public:
 
 template<typename VALUE>
 class Entry {
+    // This class represents a single sequence read at a specific position 
+    // on the flow cell. 
     public:
         Entry* next = nullptr;
         VALUE value;
@@ -171,6 +174,7 @@ class Entry {
 };
 
 class Metrics {
+    // Collects totals
     public:
         bool error = false;
         unsigned long duplicates_dedup = 0;
@@ -181,6 +185,8 @@ class Metrics {
 template<typename VALUE>
 class AnalysisHead {
 
+    /* The AnalysisHead class receives read one by one from the main program, and 
+     * manages the processing of rows, and groups (tiles). */
     ostream& outout;
 
     const size_t hash_size;
@@ -255,6 +261,16 @@ Metrics analysisLoop(
         const string& header, const string& sequence
         ) {
 
+    /*
+     * Function analysisLoop is called by main program to run the actual analysis.
+     *
+     * This is separated into a different function in order to be able to use a 
+     * type parameter (VALUE), so it can call the corresponding AnalysisHead efficiently.
+     */
+
+    // Do some more work to determine the header format. In Illumina format, the 
+    // x coordinate is after the fifth colon and the y coordinate after the sixth 
+    // colon up to a space.
     size_t start_to_coord_offset, start_to_y_coord_offset;
     size_t colons = 0, end_coords = 0; // temporary variables
 
@@ -275,13 +291,20 @@ Metrics analysisLoop(
         return m;
     }
 
-
+    // Read the x/y of the first entry in a special way, because we have already
+    // read the lines into memory.
     int x, y;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
     size_t coord_to_seq_offset = header.size() - end_coords + 1;
 
     size_t seq_len = sequence.size();
+    if (seq_len >= MAX_LEN) {
+        cerr << "Sequence is too long, max supported is: " << MAX_LEN << "." << endl;
+        Metrics m;
+        m.error = true;
+        return m;
+    }
 
     // Read identifier prefix (before coordinates)
     char read_id[2][start_to_coord_offset];
@@ -291,6 +314,7 @@ Metrics analysisLoop(
     const size_t pad_to = sizeof(unsigned long) * 4;
     const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
     char* seq_data = new char[buf_size];
+    char* linebuf = new char[MAX_LEN];
     sequence.copy(seq_data, str_len, str_start);
 
     input.ignore(3 + seq_len); // Ignores "+\n" line & quality and \n
@@ -302,25 +326,44 @@ Metrics analysisLoop(
     if (input) {
         analysisHead.enterPoint(x, y, header.substr(1, end_coords - 1), seq_data);
         while (input) { // Input loop
+            // Read the read ID (query name) up to the coordinates
             input.read(read_id[ibuf], start_to_coord_offset);
             if (!input) break;
+            // If it doesn't match the last one, signal "end of group" (tile)
             if (memcmp(read_id[0], read_id[1], start_to_coord_offset) != 0) {
                 analysisHead.endOfGroup();
             }
             stringstream ss;
             ss.write(read_id[ibuf]+1, start_to_coord_offset-1);
-            ibuf ^= 1;
+            ibuf = ibuf == 0 ? 1 : 0;
 
-            input >> x;
-            input.ignore(1);
-            input >> y;
-            ss << x << ':' << y;
-            input.ignore(coord_to_seq_offset + str_start);
-            input.read(seq_data, str_len);
-            size_t remain = seq_len - str_len - str_start;
-            input.ignore(remain + 4 + seq_len);
+            // Read the coordinates, then ignore the rest of the header line
+            char colon_test;
+            input >> x >> colon_test >> y;
+            input.ignore(coord_to_seq_offset);
 
-            analysisHead.enterPoint(x, y, ss.str(), seq_data);
+            if (colon_test != ':') {
+                cerr << "Invalid file format detected. All reads must be of the same length, "
+                     << "and the header must be the standard Illumina header." << endl;
+                Metrics m;
+                m.error = true;
+                return m;
+            }
+
+            // Read sequence substring
+            input.getline(linebuf, MAX_LEN);
+
+            // Number of characters read including end of line
+            size_t num_read = input.gcount();
+            // Ignore to the end of the sequence, then the quality, to the end of the record
+            input.ignore(2 + num_read); // Ignores "+\nquality string\n"
+
+            if (num_read >= 1 + str_len + str_start) {
+                memcpy(seq_data, linebuf + str_start, str_len);
+                ss << x << ':' << y;
+            	analysisHead.enterPoint(x, y, ss.str(), seq_data);
+            }
+
             if (analysisHead.metrics.num_reads % 1000000 == 0)
                 cerr << "Analysed " << setw(9) << analysisHead.metrics.num_reads
                     << " reads." << endl;
@@ -333,6 +376,8 @@ Metrics analysisLoop(
 
 int main(int argc, char* argv[]) {
 
+    // Main function: Reads arguments and calls analysisLoop
+    
     string inputfile("-"), outputfile("-");
     unsigned int winx, winy;
     int first_base, last_base = -1;
@@ -349,9 +394,9 @@ int main(int argc, char* argv[]) {
     visible.add_options()
         ("winx,x", po::value<unsigned int>(&winx)->default_value(2500), "x coordinate window, +/- pixels")
         ("winy,y", po::value<unsigned int>(&winy)->default_value(2500), "y coordinate window, +/- pixels")
-        ("start,s", po::value<int>(&first_base)->default_value(0),
+        ("start,s", po::value<int>(&first_base)->default_value(10),
             "First base position in reads to consider")
-        ("end,e", po::value<int>(&last_base)->default_value(-1), 
+        ("end,e", po::value<int>(&last_base)->default_value(60), 
             "Last base position in reads to consider (use -1 for all bases)")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
             "Hash table size (bytes), *must* be a power of 2. (increase if winy>2500).")
@@ -395,7 +440,12 @@ int main(int argc, char* argv[]) {
     InputSelector isel(inputfile);
 
     if (!isel.valid) {
-        cerr << "Cannot open file " << inputfile << ": " << strerror(errno) << "\n";
+        if (inputfile == "-") {
+            cerr << "ERROR: Cannot open standard input: " << strerror(errno) << "\n";
+        }
+        else {
+            cerr << "ERROR: Cannot open file " << inputfile << ": " << strerror(errno) << "\n";
+        }
         return 1;
     }
 
@@ -416,49 +466,52 @@ int main(int argc, char* argv[]) {
 
     size_t seq_len = sequence.size();
     // Read index within the sequence string (i.e. nucleotide position)
-    size_t str_start = min((size_t)first_base, seq_len);
     if (last_base == -1) last_base = seq_len;
-    size_t str_len = min(seq_len - str_start, (size_t)(last_base - str_start));
+    size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
 
-    cerr << "Using bases from " << str_start << " to " <<
-        str_start+str_len << endl;
+    cerr << "Using bases from " << first_base << " to " << first_base+str_len << endl;
 
+    // Call the correct analysis loop for the specified string length
     Metrics result;
-    // Initial analysis to determine byte offsets (positions)
     if (str_len > 160) {
-        cerr << "Sorry, strings longer than 160 bytes are not supported "
-            << "(see parameters --start, --end)" << endl;
+        cerr << "ERROR: Sorry, strings longer than 160 bytes are not supported "
+            << "(use parameters --start, --end)" << endl;
         return 1;
     }
     else if (str_len > 128) {
         result = analysisLoop<TwoBitSequence<5>>(
                 output,
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 96) {
         result = analysisLoop<TwoBitSequence<4>>(
                 output,
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 64) {
         result = analysisLoop<TwoBitSequence<3>>(
                 output,
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 32) {
         result = analysisLoop<TwoBitSequence<2>>(
                 output,
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else {
         result = analysisLoop<TwoBitSequence<1>>(
                 output,
-                hash_bytes, str_start, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
+    }
+    else {
+        cerr << "ERROR: Zero length sequence to compare. Perhaps the format of "
+            << "the file was not understood."<< endl;
+        return 1;
     }
 
     if (result.error) {
@@ -469,10 +522,10 @@ int main(int argc, char* argv[]) {
     }
     else {
         if (input.bad()) {
-            cerr << "Read error: " << strerror(errno) << endl;
+            cerr << "ERROR: read: " << strerror(errno) << endl;
         }
         else {
-            cerr << "Unexpected problem!" << endl;
+            cerr << "ERROR: Unexpected problem!" << endl;
         }
         return 1;
     }

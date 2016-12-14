@@ -328,8 +328,7 @@ Metrics analysisLoop(
             }
             ibuf = ibuf == 0 ? 1 : 0;
 
-            // Read the coordinates, then ignore the rest of the header line, and
-            // any characters at the start of the sequence
+            // Read the coordinates, then ignore the rest of the header line
             char colon_test;
             input >> x >> colon_test >> y;
             input.ignore(coord_to_seq_offset);
