@@ -502,7 +502,7 @@ int main(int argc, char* argv[]) {
                 hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
-    else {
+    else if (str_len > 0) {
         result = analysisLoop<TwoBitSequence<1>>(
                 output,
                 hash_bytes, first_base, str_len, winx, winy, input, header, sequence
@@ -526,6 +526,7 @@ int main(int argc, char* argv[]) {
         }
         else {
             cerr << "ERROR: Unexpected problem!" << endl;
+            cerr << "good=" << input.good() << ", eof=" << input.eof() << endl;
         }
         return 1;
     }
