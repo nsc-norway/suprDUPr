@@ -401,8 +401,6 @@ class AnalysisHead {
         void endOfRow() {
             row_list::iterator it, * local_end_of_group = nullptr;
             int my_task_id;
-            #pragma omp atomic capture
-            my_task_id = task_id++;
 
             // Start analysis of a row that was just entered
             #pragma omp critical(row_operations)
@@ -413,6 +411,7 @@ class AnalysisHead {
                 if (group_change) {
                     local_end_of_group = &end_of_group;
                 }
+                my_task_id = task_id++;
                 last_task_id.push_front(my_task_id);
             }
 
