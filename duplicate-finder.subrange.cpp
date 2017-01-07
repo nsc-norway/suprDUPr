@@ -581,7 +581,11 @@ int main(int argc, char* argv[]) {
 
             read_name = next_read;
             ++i_record;
-            if (++i_record % 1000000 == 0) cerr << "Read " << i_record << " records." << endl;
+            if (++i_record % 1000000 == 0) {
+                cerr << "Read " << i_record << " records (current: ";
+                cerr.write(next_read, start_to_coord_offset);
+                cerr << x << ':' << y << ")." << endl;
+            }
         } while(input && valid);
         pair<unsigned int, unsigned int> totals = analysisHead.getTotal();
         cerr << "NUM_READS\tREAD_WITH_DUP\tUNUSED\n";
