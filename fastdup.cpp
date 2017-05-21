@@ -203,8 +203,6 @@ class AnalysisHead {
             : hash_size(hash_bytes/sizeof(Ent*)), mask(hash_size-1),
                 winx(winx), winy(winy) {
             data = new Ent*[hash_size];
-            cerr << "Using a hash table of " << (hash_size) << " entries"
-                <<" (" << hash_bytes << " bytes)." << endl;
         }
 
         ~AnalysisHead() {
