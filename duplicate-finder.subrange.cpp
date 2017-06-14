@@ -510,7 +510,7 @@ int main(int argc, char* argv[]) {
     getline(input, header);
     getline(input, sequence);
     int colons = 0, end_coords = 0, start_to_y_coord_offset;
-    for (int i=0; i<header.size()-1; ++i) {
+    for (int i=0; i<header.size(); ++i) {
         if (header[i] == ':') {
             ++colons;
             if (colons == 5) start_to_coord_offset = i+1;
@@ -520,10 +520,13 @@ int main(int argc, char* argv[]) {
             end_coords = i;
         }
     }
-    if (colons < 6 || !end_coords) {
+    if (end_coords == 0)
+        end_coords = i;
+    if (colons < 6) {
         cerr << "Invalid format, coordinate not detected" << endl;
         return 1;
     }
+
     int x, y, y1;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
@@ -537,12 +540,20 @@ int main(int argc, char* argv[]) {
     char* seq_data = new char[STR_LEN];
     sequence.copy(seq_data, STR_LEN, START_BASE);
 
-    //cerr << "Started reading FASTQ file..." << endl;
-    input.ignore(2 + seq_len);
+    string middle_header;
+    getline(input, middle_header);
+
+    if (middle_header.size() == 0 || middle_header[0] != '+') {
+        cerr << "The line after the sequence doesn't conform to the expected " 
+            << "format." << endl;
+        return 1;
+    }
+
+    size_t between_len = middle_header.size() + 2;
+    input.ignore(1 + seq_len);
 
     AnalysisHead analysisHead(seq_len, start_to_coord_offset, 2500, 2500);
     analysisHead.enterPoint(x, y, seq_data, read_name);
-    input.ignore(1);
 
     // Set up for OpenMP parallel, but only use one thread for input
     #pragma omp parallel
@@ -571,7 +582,7 @@ int main(int argc, char* argv[]) {
             input.ignore(coord_to_seq_len); 
             input.getline(buffer, 512);
             size_t num_read = input.gcount();
-            input.ignore(2 + num_read);
+            input.ignore(between_len + num_read);
 
             if (num_read >= 1 + STR_LEN + START_BASE) {
                 seq_data = new char[STR_LEN];
