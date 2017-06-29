@@ -272,9 +272,10 @@ Metrics analysisLoop(
     // x coordinate is after the fifth colon and the y coordinate after the sixth 
     // colon up to a space.
     size_t start_to_coord_offset, start_to_y_coord_offset;
+    size_t coord_to_quality_offset = 1; // Default is \n+\n, but could be longer
     size_t colons = 0, end_coords = 0; // temporary variables
-
-    for (size_t i=0; i<header.size()-1; ++i) {
+    size_t i;
+    for (i=0; i<header.size(); ++i) {
         if (header[i] == ':') {
             ++colons;
             if (colons == 5) start_to_coord_offset = i+1;
@@ -284,7 +285,9 @@ Metrics analysisLoop(
             end_coords = i;
         }
     }
-    if (colons < 6 || !end_coords) {
+    if (end_coords == 0)
+        end_coords = i;
+    if (colons < 6) {
         cerr << "Illumina format x/y coordinates not detected" << endl;
         Metrics m;
         m.error = true;
@@ -315,9 +318,24 @@ Metrics analysisLoop(
     const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
     char* seq_data = new char[buf_size];
     char* linebuf = new char[MAX_LEN];
+    char* dummybuf = new char[MAX_LEN];
     sequence.copy(seq_data, str_len, str_start);
 
-    input.ignore(3 + seq_len); // Ignores "+\n" line & quality and \n
+    // We also accept a header between sequence and quality, doesn't need to be just
+    // "+". For example, some files from SRA have this.
+    string middle_header;
+    getline(input, middle_header);
+
+    if (middle_header.size() == 0 || middle_header[0] != '+') {
+        cerr << "The line after the sequence doesn't conform to the expected " 
+            << "format." << endl;
+        Metrics m;
+        m.error = true;
+        return m;
+    }
+    size_t interlude_len = middle_header.size() + 2;
+
+    input.ignore(1 + seq_len); // Ignores quality scores and \n
 
     AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy);
 
@@ -356,7 +374,8 @@ Metrics analysisLoop(
             // Number of characters read including end of line
             size_t num_read = input.gcount();
             // Ignore to the end of the sequence, then the quality, to the end of the record
-            input.ignore(2 + num_read); // Ignores "+\nquality string\n"
+            input.getline(dummybuf, MAX_LEN);
+            input.getline(dummybuf, MAX_LEN);
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
