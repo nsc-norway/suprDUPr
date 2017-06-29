@@ -510,7 +510,7 @@ int main(int argc, char* argv[]) {
     getline(input, header);
     getline(input, sequence);
     int colons = 0, end_coords = 0, start_to_y_coord_offset;
-    for (int i=0; i<header.size(); ++i) {
+    for (i=0; i<header.size(); ++i) {
         if (header[i] == ':') {
             ++colons;
             if (colons == 5) start_to_coord_offset = i+1;
@@ -526,6 +526,8 @@ int main(int argc, char* argv[]) {
         cerr << "Invalid format, coordinate not detected" << endl;
         return 1;
     }
+    //cerr << "DEBUG I think the end of coordinates is at: " << end_coords << endl;
+    //cerr << "DEBUG header size is : " << header.size() << endl;
 
     int x, y, y1;
     x = atoi(header.c_str() + start_to_coord_offset);
@@ -535,7 +537,8 @@ int main(int argc, char* argv[]) {
 
     char* read_name;
     read_name = new char[start_to_coord_offset];
-    memcpy(read_name+1, header.c_str(), start_to_coord_offset-1);
+    memcpy(read_name, header.c_str(), start_to_coord_offset);
+    //cerr << "DEBUG the first read-id was " << read_name << endl;
 
     char* seq_data = new char[STR_LEN];
     sequence.copy(seq_data, STR_LEN, START_BASE);
@@ -548,9 +551,13 @@ int main(int argc, char* argv[]) {
             << "format." << endl;
         return 1;
     }
+    //cerr << "DEBUG middle header " << middle_header << endl;
+    //cerr << "DEBUG length of middle header " << middle_header.size() << endl;
 
-    size_t between_len = middle_header.size() + 2;
-    input.ignore(1 + seq_len);
+    // Includes one line break after middle line, but not line break before
+    size_t between_len = middle_header.size() + 1;
+    //cerr << "DEBUG between_len " << between_len << endl;
+    input.ignore(1 + seq_len); // Ignores quality scores
 
     AnalysisHead analysisHead(seq_len, start_to_coord_offset, 2500, 2500);
     analysisHead.enterPoint(x, y, seq_data, read_name);
@@ -559,7 +566,7 @@ int main(int argc, char* argv[]) {
     #pragma omp parallel
     #pragma omp single
     {
-        char buffer[512];
+        char buffer[512], dummy_buffer[512];
         bool valid = true;
         do {
             char* next_read = new char[start_to_coord_offset];
@@ -569,20 +576,34 @@ int main(int argc, char* argv[]) {
                 analysisHead.endOfGroup();
             }
 
+            // Debug output of read ID
+            //cerr << "DEBUG read-id line read:\n";
+            //cerr.write(next_read, start_to_coord_offset);
+            //cerr << "\n";
+
             // Input loop
             char colon_test = 0;
             input >> x >> colon_test >> y;
             if (colon_test != ':') {
                 cerr << "Input format error (" << colon_test << ")." << endl;
+                //cerr << "DEBUG X " << x << " Y " << y << endl;
                 valid = false;
                 break;
             }
             y1 = y;
 
+            //cerr << "DEBUG: ignoring " << coord_to_seq_len << endl;
             input.ignore(coord_to_seq_len); 
             input.getline(buffer, 512);
+            /*if (next_read[0] != '@') {
+             *   cerr << "DEBUG failing at line with " << buffer <<endl;
+             *   exit(1);
+             *}
+             */
+            //cerr << "DEBUG: read sequence " << buffer << endl;
             size_t num_read = input.gcount();
-            input.ignore(between_len + num_read);
+            input.getline(dummy_buffer, 512);
+            input.getline(dummy_buffer, 512);
 
             if (num_read >= 1 + STR_LEN + START_BASE) {
                 seq_data = new char[STR_LEN];
@@ -598,9 +619,11 @@ int main(int argc, char* argv[]) {
                 cerr << x << ':' << y << ")." << endl;
             }
         } while(input && valid);
-        pair<unsigned int, unsigned int> totals = analysisHead.getTotal();
-        cerr << "NUM_READS\tREAD_WITH_DUP\tUNUSED\n";
-        cerr << i_record << '\t' << totals.first << '\t' << totals.second << '\n';
+        if (valid) {
+            pair<unsigned int, unsigned int> totals = analysisHead.getTotal();
+            cerr << "NUM_READS\tREAD_WITH_DUP\tUNUSED\n";
+            cerr << i_record << '\t' << totals.first << '\t' << totals.second << '\n';
+        }
     }
 
     return 0;
