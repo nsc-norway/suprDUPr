@@ -321,7 +321,8 @@ Metrics analysisLoop(
         m.error = true;
         return m;
     }
-    size_t interlude_len = middle_header.size() + 2;
+    // Include header line and one line break
+    size_t interlude_len = middle_header.size() + 1;
 
     input.ignore(1 + seq_len); // Ignores quality scores and \n
 
@@ -340,6 +341,14 @@ Metrics analysisLoop(
             // If it doesn't match the last one, signal "end of group" (tile)
             if (memcmp(read_id[0], read_id[1], start_to_coord_offset) != 0) {
                 analysisHead.endOfGroup();
+            }
+            if (read_id[ibuf][0] != '@') {
+                cerr << "Header format error: expected it to start with '@', got '" 
+                     << read_id[ibuf][0] << "' at record #" << analysisHead.metrics.num_reads
+                     << "." << endl;
+                Metrics m;
+                m.error = true;
+                return m;
             }
             ibuf = ibuf == 0 ? 1 : 0;
 
