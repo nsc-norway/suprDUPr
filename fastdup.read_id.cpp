@@ -537,6 +537,12 @@ int main(int argc, char* argv[]) {
         return 1; // error flag
     }
     else if (input.eof() && output.good()) {
+        cerr << "Completed. Processed " << result.num_reads << " records." << endl;
+        cerr << "NUM_READS\tREADS_WITH_DUP\tDUPLICATES_DEDUP\n";
+        cerr << result.num_reads 
+            << '\t' << result.reads_with_duplicates 
+            << '\t' << result.duplicates_dedup
+            << endl;
         return 0;
     }
     else {
