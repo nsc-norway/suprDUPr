@@ -554,9 +554,6 @@ int main(int argc, char* argv[]) {
     //cerr << "DEBUG middle header " << middle_header << endl;
     //cerr << "DEBUG length of middle header " << middle_header.size() << endl;
 
-    // Includes one line break after middle line, but not line break before
-    size_t between_len = middle_header.size() + 1;
-    //cerr << "DEBUG between_len " << between_len << endl;
     input.ignore(1 + seq_len); // Ignores quality scores
 
     AnalysisHead analysisHead(seq_len, start_to_coord_offset, 2500, 2500);
