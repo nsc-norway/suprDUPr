@@ -250,14 +250,14 @@ class RowProcessor {
                         if (&p0 == &pc) {
                             break;
                         }
-                        
+                        const int TOO_MANY_DIFFERENCES = 1;
                         // Process pc <--> p0
                         int l = bounded_levenshtein_distance(
-                                2,
+                                TOO_MANY_DIFFERENCES,
                                 STR_LEN, p0.seq,
                                 STR_LEN, pc.seq
                                 );
-                        bool dup = l < 2;
+                        bool dup = l < TOO_MANY_DIFFERENCES;
                         /*bool dup = true;
                         for(int i=0; dup && i<STR_LEN; ++i) {
                             if (p0.seq[i] != pc.seq[i]) {
@@ -609,7 +609,6 @@ int main(int argc, char* argv[]) {
             }
 
             read_name = next_read;
-            ++i_record;
             if (++i_record % 1000000 == 0) {
                 cerr << "Read " << i_record << " records (current: ";
                 cerr.write(next_read, start_to_coord_offset);
