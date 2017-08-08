@@ -537,7 +537,8 @@ int main(int argc, char* argv[]) {
 
     char* read_name;
     read_name = new char[start_to_coord_offset];
-    memcpy(read_name, header.c_str(), start_to_coord_offset);
+    // Chop of the initial, standard, @ on the header line.
+    memcpy(read_name, header.c_str()+1, start_to_coord_offset-1);
     //cerr << "DEBUG the first read-id was " << read_name << endl;
 
     char* seq_data = new char[STR_LEN];
@@ -557,6 +558,7 @@ int main(int argc, char* argv[]) {
     input.ignore(1 + seq_len); // Ignores quality scores
 
     AnalysisHead analysisHead(seq_len, start_to_coord_offset, 2500, 2500);
+    // Enter the first point, we have already read the record. 
     analysisHead.enterPoint(x, y, seq_data, read_name);
 
     // Set up for OpenMP parallel, but only use one thread for input
@@ -617,8 +619,9 @@ int main(int argc, char* argv[]) {
         } while(input && valid);
         if (valid) {
             pair<unsigned int, unsigned int> totals = analysisHead.getTotal();
-            cerr << "NUM_READS\tREAD_WITH_DUP\tUNUSED\n";
-            cerr << i_record << '\t' << totals.first << '\t' << totals.second << '\n';
+            cerr << "NUM_READS\tREAD_WITH_DUP\tDUP_RATIO\n";
+            cerr << i_record << '\t' << totals.first << '\t' 
+                << totals.first * 1.0 / i_record << '\n';
         }
     }
 

@@ -524,10 +524,10 @@ int main(int argc, char* argv[]) {
     }
     else if (input.eof() && output.good()) {
 	cerr << "Completed. Processed " << result.num_reads << " records." << endl;
-        output << "NUM_READS\tREADS_WITH_DUP\tDUPLICATES_DEDUP\n";
+        output << "NUM_READS\tREADS_WITH_DUP\tDUP_RATIO\n";
         output << result.num_reads 
             << '\t' << result.reads_with_duplicates 
-            << '\t' << result.duplicates_dedup
+            << '\t' << result.reads_with_duplicates * 1.0 / result.num_reads
             << endl;
         return 0;
     }
