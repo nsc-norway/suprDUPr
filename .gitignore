@@ -32,3 +32,9 @@
 fastdup
 fastdup.read_id
 duplicate-finder.subrange
+
+# Data files
+*.txt
+*.fastq
+*.fastq.gz
+
