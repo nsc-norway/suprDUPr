@@ -208,8 +208,6 @@ class AnalysisHead {
                 hash_size(hash_bytes/sizeof(Ent*)), mask(hash_size-1),
                 winx(winx), winy(winy) {
             data = new Ent*[hash_size];
-            cerr << "Using a hash table of " << (hash_size) << " entries"
-                <<" (" << hash_bytes << " bytes)." << endl;
         }
 
         ~AnalysisHead() {
@@ -219,21 +217,36 @@ class AnalysisHead {
         void enterPoint(int x, int y, const string& id, const char* str) {
             Ent* new_entry = new Ent(group,x,y,id,str);
             Ent** entry_ptr = &data[new_entry->value.hash() & mask];
+            //bool trace = false;
+            //if (id == "E00401:15:HNCMCCCXX:1:1115:13545:40178"
+            //        || id == "E00401:15:HNCMCCCXX:1:1115:13545:40108") {
+            //    cerr << "ENTRY: " << id << endl;
+            //    cerr << "THE HASH OF THIS MAGIC ENTRY IS: " 
+            //        << new_entry->value.hash() << endl;
+            //    cerr << "Match in hashtable was: " << (*entry_ptr != 0) << endl;
+            //    trace = true;
+            //}
             unsigned int m = 0, dup = 0;
             while (*entry_ptr) {
                 m++;
                 Ent* entry = (*entry_ptr);
+                //if (trace) cerr << "Reading an entry with ID " << entry->id << endl;
                 if (entry->group != group || (y - entry->y) > winy) {
+                    //if (trace) cerr << "Group or y mismatch" << endl;
                     *entry_ptr = entry->next;
                     delete entry;
                 }
                 else {
+                    //if (trace) cerr << "Group and y matches" << endl;
                     if (entry->value == new_entry->value && abs(entry->x - x) < winx) {
+                        //if (trace) cerr << "Value & x matches" << endl;
                         if (dup == 0) {
+                            //if (trace) cerr << "dup flag was zero, outputting" << endl;
                             outout << new_entry->id << '\n';
                             new_entry->counted = true;
                         }
                         if (!entry->counted) {
+                            //if (trace) cerr << "it was not already counted" << endl;
                             entry->counted = true;
                             metrics.duplicates_dedup++;
                             outout << entry->id << '\n';
@@ -243,6 +256,7 @@ class AnalysisHead {
                     entry_ptr = &entry->next;
                 }
             }
+            //if (trace) cerr << "-- end of loop --" << endl;
             metrics.reads_with_duplicates += dup;
             metrics.num_reads++;
             *entry_ptr = new_entry;
@@ -376,6 +390,7 @@ Metrics analysisLoop(
             // Ignore to the end of the sequence, then the quality, to the end of the record
             input.getline(dummybuf, MAX_LEN);
             input.getline(dummybuf, MAX_LEN);
+
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
