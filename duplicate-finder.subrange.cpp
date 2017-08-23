@@ -61,10 +61,11 @@ class Row {
         }
 
         int y;
+        bool done;
         row_data data;
 };
 
-typedef forward_list<Row*> row_list;
+typedef list<Row*> row_list;
 
 
 class InputSelector {
@@ -189,16 +190,15 @@ class RowProcessor {
     const size_t seq_len, prefix_len;
 
     public:
-        row_list::iterator row_start, row_end, * alt_row_end, last_in_range;
+        row_list::iterator row_start, row_end, last_in_range;
 
         RowProcessor(size_t seq_len, size_t prefix_len, Row& current_row,
                 unsigned int winx, unsigned int winy,
-                row_list::iterator row_start, row_list::iterator row_end,
-                row_list::iterator* alt_row_end)
+                row_list::iterator row_start, row_list::iterator row_end)
             : seq_len(STR_LEN), prefix_len(prefix_len),
                 current_row(current_row), y(current_row.y),
                 winx(winx), winy(winy), row_start(row_start), row_end(row_end),
-                alt_row_end(alt_row_end), last_in_range(row_end) {
+                last_in_range(row_end) {
         }
 
         pair<unsigned int, unsigned int> analyseRow() {
@@ -206,9 +206,6 @@ class RowProcessor {
 
             // Loop over rows in submatrix
             for (row_list::iterator it_row = row_start; it_row != row_end; ++it_row) {
-
-                if (alt_row_end && (it_row == *alt_row_end))
-                    break;
 
                 Row& compare_row = **it_row;
 
@@ -304,20 +301,18 @@ class AnalysisHead {
 
     const size_t seq_len, prefix_len;
 
-    row_list rows;
+    list<row_list*> groups;
+    row_list* group;
     Row* current_row;
     row_list::iterator end_of_group;
-    bool group_change;
 
     unsigned int winx, winy;
     unsigned long total_dups, total_external_dups;
     size_t max_row_size;
 
     row_list unused_row_cache;
-    list<int> last_task_id;
 
     bool first;
-    int task_id = 0, last_task_in_group = 0;
 
     public:
 
@@ -328,7 +323,6 @@ class AnalysisHead {
             total_dups = 0;
             total_external_dups = 0;
             first = true;
-            group_change = false;
             max_row_size = 0;
         }
 
@@ -338,8 +332,12 @@ class AnalysisHead {
             for (it=unused_row_cache.begin(); it != unused_row_cache.end(); ++it) {
                 delete *it;
             }
-            for (it=rows.begin(); it != rows.end(); ++it) {
-                delete *it;
+            list<row_list*>::iterator git;
+            for (git=groups.begin(); git != groups.end(); ++git) {
+                row_list& rows = **git;
+                for (it=rows.begin(); it != rows.end(); ++it) {
+                    delete *it;
+                }
             }
         }
 
@@ -348,6 +346,12 @@ class AnalysisHead {
         void enterPoint(int x, int y, const char* seq, const char* qname) {
             if (first) {
                 current_row = getRow(y);
+                #pragma omp critical(row_operations)
+                {
+                    // Here's a new group
+                    groups.emplace_front();
+                    group = groups.front();
+                }
                 first = false;
             }
             if (y != current_row->y) {
@@ -362,13 +366,27 @@ class AnalysisHead {
             endOfRow();
             #pragma omp critical(row_operations)
             {
-                end_of_group = rows.begin();
-                #pragma omp atomic write
-                last_task_in_group = task_id;
-                if (group_change) {
-                    cerr << "Groop change when group change " << endl;
+                list<row_list*>::iterator it;
+                for (it = groups.begin(); it != groups.end(); ++it) {
+                    row_list & rows = **it;
+                    row_list::iterator rit;
+                    if (!rows.empty()) {
+                        do {
+                            rit--;
+                            if ((*rit)->done) {
+                                (*rit)->data.clear();
+                                unused_row_cache.push_back(*rit);
+                                rows.erase(rit);
+                            }
+                            else {
+                                break;
+                            }
+                        } while (rit != rows.begin());
+                    }
+                    if (rows.empty()) {
+                        groups.erase(it);
+                    }
                 }
-                group_change = true;
             }
             first = true;
         }
@@ -376,7 +394,6 @@ class AnalysisHead {
         pair<unsigned long, unsigned long> getTotal() {
             endOfRow();
             #pragma omp taskwait
-            finaliseAllRows();
             return pair<unsigned long, unsigned long>(total_dups, total_external_dups);
         }
 
@@ -399,20 +416,16 @@ class AnalysisHead {
         }
 
         void endOfRow() {
-            row_list::iterator it, * local_end_of_group = nullptr;
-            int my_task_id;
+            row_list * my_group = group;
+            Row * my_row = current_row;
+            row_list::iterator start, end;
 
             // Start analysis of a row that was just entered
             #pragma omp critical(row_operations)
             {
-                rows.push_front(current_row);
-
-                it = rows.begin();
-                if (group_change) {
-                    local_end_of_group = &end_of_group;
-                }
-                my_task_id = task_id++;
-                last_task_id.push_front(my_task_id);
+                my_group->push_front(my_row);
+                start = my_group->begin();
+                end = my_group->end();
             }
 
             // Pathological scheduling condition when single thread is running:
@@ -426,67 +439,16 @@ class AnalysisHead {
             #pragma omp taskyield
             #pragma omp task
             {
-                RowProcessor rp(seq_len, prefix_len, **it, winx, winy, it, rows.end(), local_end_of_group);
+                RowProcessor rp(seq_len, prefix_len, *my_row, winx, winy, start, end);
                 pair<unsigned int,unsigned int> n_dups = rp.analyseRow();
                 #pragma omp atomic
                 total_dups += n_dups.first;
                 #pragma omp atomic
                 total_external_dups += n_dups.second;
-                releaseRows(my_task_id, rp.last_in_range);
-                //cout << "Row count " << distance(rows.begin(), rows.end()) << " refd len " << distance(last_task_id.begin(), last_task_id.end()) << endl;
+                my_row->done = true;
             }
         }
 
-        void releaseRows(int my_task_id, row_list::iterator last) {
-
-            row_list removed_rows;
-
-            #pragma omp critical(row_operations)
-            {
-                //cout << "We are " << my_task_id << ", last one is " << last_task_id.back() << endl;
-
-                int grp_last_task_id;
-                #pragma omp atomic read
-                grp_last_task_id = last_task_in_group;
-
-                if ((my_task_id - grp_last_task_id) > 0 && last_task_id.back() == my_task_id) {
-                    
-                    last_task_id.pop_back();
-
-                    // Everything after last is now OK to free, we were the last 
-                    // ones using it.
-                    row_list::iterator it(last);
-                    if (last != rows.end()) {
-
-                        while (++it != rows.end()) {
-                            if (group_change && it == end_of_group) {
-                                group_change = false; // Now the old group is ejected
-                            }
-                            (*it)->data.clear();
-                            unused_row_cache.push_front(*it);
-                        }
-                        rows.erase_after(last, rows.end());
-                    }
-                }
-                else { // Some other thread is still using rows after ours
-                    list<int>::iterator it = last_task_id.end();
-                    while (it != last_task_id.begin()) {
-                        --it;
-                        if (*it == my_task_id) {
-                            last_task_id.erase(it);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        void finaliseAllRows() {
-            for (row_list::iterator it=rows.begin(); it != rows.end(); ++it) {
-                unused_row_cache.push_front(*it);
-            }
-            rows.clear();
-        }
 };
 
 
