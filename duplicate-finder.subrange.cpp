@@ -187,18 +187,15 @@ class RowProcessor {
     const int y;
     const unsigned int winx, winy;
     const size_t seq_len, prefix_len;
-    omp_lock_t* lk;
 
     public:
         row_list::iterator row_start, row_end, * alt_row_end, last_in_range;
 
-        //RowProcessor(size_t seq_len, size_t prefix_len, Row& current_row,
-        RowProcessor(omp_lock_t* lk, size_t seq_len, size_t prefix_len, Row& current_row,
+        RowProcessor(size_t seq_len, size_t prefix_len, Row& current_row,
                 unsigned int winx, unsigned int winy,
                 row_list::iterator row_start, row_list::iterator row_end,
                 row_list::iterator* alt_row_end)
-            //: seq_len(STR_LEN), prefix_len(prefix_len),
-            : lk(lk), seq_len(STR_LEN), prefix_len(prefix_len),
+            : seq_len(STR_LEN), prefix_len(prefix_len),
                 current_row(current_row), y(current_row.y),
                 winx(winx), winy(winy), row_start(row_start), row_end(row_end),
                 alt_row_end(alt_row_end), last_in_range(row_end) {
@@ -270,7 +267,6 @@ class RowProcessor {
                         
                         if (dup) {
                             #pragma omp critical (output)
-                            omp_set_lock(lk);
                             {
                                 // Local p0 counting only, may already have been counted as pc
                                 if (!p0.has_duplicate) {
@@ -291,7 +287,6 @@ class RowProcessor {
                                     cout << pc.x << ':' << compare_row.y << '\n';
                                 }
                             }
-                            omp_unset_lock(lk);
                         }
                     }
                 }
@@ -323,7 +318,6 @@ class AnalysisHead {
 
     bool first;
     int task_id = 0, last_task_in_group = 0;
-    omp_lock_t myLock;
 
     public:
 
@@ -336,7 +330,6 @@ class AnalysisHead {
             first = true;
             group_change = false;
             max_row_size = 0;
-            omp_init_lock(&myLock);
         }
 
         ~AnalysisHead() {
@@ -433,8 +426,7 @@ class AnalysisHead {
             #pragma omp taskyield
             #pragma omp task
             {
-                //RowProcessor rp(seq_len, prefix_len, **it, winx, winy, it, rows.end(), local_end_of_group);
-                RowProcessor rp(&myLock, seq_len, prefix_len, **it, winx, winy, it, rows.end(), local_end_of_group);
+                RowProcessor rp(seq_len, prefix_len, **it, winx, winy, it, rows.end(), local_end_of_group);
                 pair<unsigned int,unsigned int> n_dups = rp.analyseRow();
                 #pragma omp atomic
                 total_dups += n_dups.first;
