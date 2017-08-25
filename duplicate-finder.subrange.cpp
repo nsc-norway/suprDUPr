@@ -349,7 +349,7 @@ class AnalysisHead {
                 #pragma omp critical(row_operations)
                 {
                     // Here's a new group
-                    groups.emplace_front();
+                    groups.push_front(new row_list);
                     group = groups.front();
                 }
                 first = false;
@@ -366,8 +366,9 @@ class AnalysisHead {
             endOfRow();
             #pragma omp critical(row_operations)
             {
-                list<row_list*>::iterator it;
-                for (it = groups.begin(); it != groups.end(); ++it) {
+                list<row_list*>::iterator it = groups.begin();
+                if (it != groups.end()) ++it; // Skip the first group -- won't be finished
+                for (; it != groups.end(); ++it) {
                     row_list & rows = **it;
                     row_list::iterator rit;
                     if (!rows.empty()) {
@@ -384,6 +385,7 @@ class AnalysisHead {
                         } while (rit != rows.begin());
                     }
                     if (rows.empty()) {
+                        delete *it;
                         groups.erase(it);
                     }
                 }
@@ -431,9 +433,9 @@ class AnalysisHead {
             // Pathological scheduling condition when single thread is running:
             // The first rows entered are never cleaned up. Waiting for all tasks
             // removes the last row.
-            if (omp_get_num_threads() == 1) {
+            //if (omp_get_num_threads() == 1) {
                 #pragma omp taskwait
-            }
+            //}
             
             // Prevent build-up of tasks, instead halt the producer thread
             #pragma omp taskyield
