@@ -54,7 +54,7 @@ class Entry {
 typedef vector<Entry> row_data;
 class Row {
     public:
-        Row(int y, size_t initial_capacity=0) : y(y) {
+        Row(int y, size_t initial_capacity=0) : y(y), done(false) {
             if (initial_capacity > 0) {
                 data.reserve(initial_capacity);
             }
@@ -367,22 +367,20 @@ class AnalysisHead {
             #pragma omp critical(row_operations)
             {
                 list<row_list*>::iterator it = groups.begin();
-                if (it != groups.end()) ++it; // Skip the first group -- won't be finished
+                if (it != groups.end()) ++it; // Skip the first group
+                                              // -- won't be finished yet
                 for (; it != groups.end(); ++it) {
+                    row_list deletable;
                     row_list & rows = **it;
-                    row_list::iterator rit;
-                    if (!rows.empty()) {
-                        do {
-                            rit--;
-                            if ((*rit)->done) {
-                                (*rit)->data.clear();
-                                unused_row_cache.push_back(*rit);
-                                rows.erase(rit);
-                            }
-                            else {
-                                break;
-                            }
-                        } while (rit != rows.begin());
+                    row_list::iterator rit = rows.end();
+                    while (rit != rows.begin()) {
+                        rit--;
+                        if ((*rit)->done) {
+                            unused_row_cache.push_back(*rit);
+                        }
+                        else {
+                            break;
+                        }
                     }
                     if (rows.empty()) {
                         delete *it;
@@ -409,6 +407,8 @@ class AnalysisHead {
                     result = unused_row_cache.front();
                     unused_row_cache.pop_front();
                     result->y = y;
+                    result->done = false;
+                    result->data.clear();
                 }
                 else {
                     result = new Row(y, max_row_size);
@@ -433,9 +433,9 @@ class AnalysisHead {
             // Pathological scheduling condition when single thread is running:
             // The first rows entered are never cleaned up. Waiting for all tasks
             // removes the last row.
-            //if (omp_get_num_threads() == 1) {
+            if (omp_get_num_threads() == 1) {
                 #pragma omp taskwait
-            //}
+            }
             
             // Prevent build-up of tasks, instead halt the producer thread
             #pragma omp taskyield
