@@ -320,15 +320,13 @@ class AnalysisHead {
 
         ~AnalysisHead() {
             #pragma omp taskwait
-            row_list::iterator it;
-            for (it=unused_row_cache.begin(); it != unused_row_cache.end(); ++it) {
-                delete *it;
+            for (auto rowptr : unused_row_cache) {
+                delete rowptr;
             }
             list<row_list*>::iterator git;
-            for (git=groups.begin(); git != groups.end(); ++git) {
-                row_list& rows = **git;
-                for (it=rows.begin(); it != rows.end(); ++it) {
-                    delete *it;
+            for (auto rows_ptr : groups) {
+                for (auto rowptr : *rows_ptr) {
+                    delete rowptr;
                 }
             }
         }
@@ -363,15 +361,12 @@ class AnalysisHead {
                                               // -- won't be finished yet
                 while (it != groups.end()) {
                     row_list & rows = **it;
-                    bool done = true;
-                    row_list::iterator rit;
-                    for (rit = rows.begin(); done && rit != rows.end(); ++rit) {
-                        done = done && (*rit)->done;
-                    }
+                    bool done = all_of(rows.begin(), rows.end(), [](Row* r) {
+                            return r->done;
+                        });
                     if (done) {
-                        for (rit = rows.begin(); rit != rows.end(); ++rit) {
-                            unused_row_cache.push_front(*rit);
-                        }
+                        for_each(rows.begin(), rows.end(),
+                                [&](Row* item) {unused_row_cache.push_front(item);});
                         delete *it;
                         it = groups.erase(it);
                     }
