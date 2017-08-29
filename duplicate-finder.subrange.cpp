@@ -190,15 +190,14 @@ class RowProcessor {
     const size_t seq_len, prefix_len;
 
     public:
-        row_list::iterator row_start, row_end, last_in_range;
+        row_list::iterator row_start, row_end;
 
         RowProcessor(size_t seq_len, size_t prefix_len, Row& current_row,
                 unsigned int winx, unsigned int winy,
                 row_list::iterator row_start, row_list::iterator row_end)
             : seq_len(STR_LEN), prefix_len(prefix_len),
                 current_row(current_row), y(current_row.y),
-                winx(winx), winy(winy), row_start(row_start), row_end(row_end),
-                last_in_range(row_end) {
+                winx(winx), winy(winy), row_start(row_start), row_end(row_end) {
         }
 
         pair<unsigned int, unsigned int> analyseRow() {
@@ -211,9 +210,6 @@ class RowProcessor {
 
                 if ((int)compare_row.y < (int)(y - winy)) {
                     break; // Exit: processed all y in window
-                }
-                else {
-                    last_in_range = it_row;
                 }
 
                 size_t start_index = 0; // Index of first point with x > x0-winx
@@ -289,10 +285,6 @@ class RowProcessor {
                 }
             }
             return pair<unsigned int, unsigned int>(total, total_external);
-        }
-
-        row_list::iterator& last_row() {
-            return last_in_range;
         }
 };
 
