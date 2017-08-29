@@ -65,7 +65,7 @@ class Row {
         row_data data;
 };
 
-typedef list<Row*> row_list;
+typedef forward_list<Row*> row_list;
 
 
 class InputSelector {
@@ -361,22 +361,22 @@ class AnalysisHead {
                 list<row_list*>::iterator it = groups.begin();
                 if (it != groups.end()) ++it; // Skip the first group
                                               // -- won't be finished yet
-                for (; it != groups.end(); ++it) {
-                    row_list deletable;
+                while (it != groups.end()) {
                     row_list & rows = **it;
-                    row_list::iterator rit = rows.end();
-                    while (rit != rows.begin()) {
-                        rit--;
-                        if ((*rit)->done) {
-                            unused_row_cache.push_back(*rit);
-                        }
-                        else {
-                            break;
-                        }
+                    bool done = true;
+                    row_list::iterator rit;
+                    for (rit = rows.begin(); done && rit != rows.end(); ++rit) {
+                        done = done && (*rit)->done;
                     }
-                    if (rows.empty()) {
+                    if (done) {
+                        for (rit = rows.begin(); rit != rows.end(); ++rit) {
+                            unused_row_cache.push_front(*rit);
+                        }
                         delete *it;
-                        groups.erase(it);
+                        it = groups.erase(it);
+                    }
+                    else {
+                        ++it;
                     }
                 }
             }
