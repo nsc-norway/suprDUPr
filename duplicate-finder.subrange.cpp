@@ -216,10 +216,8 @@ class RowProcessor {
                 size_t n0 = current_row.data.size();
 
                 // Loop over columns in comparison row
-                for (row_data::iterator it_pt = compare_row.data.begin();
-                    it_pt != compare_row.data.end(); ++it_pt) {
+                for (Entry& pc : compare_row.data) {
 
-                    Entry& pc = *it_pt;
                     int minx = pc.x - winx;
                     int maxx = pc.x + winx;
 
@@ -261,23 +259,19 @@ class RowProcessor {
                         if (dup) {
                             #pragma omp critical (output)
                             {
-                                // Local p0 counting only, may already have been counted as pc
-                                if (!p0.has_duplicate) {
-                                    p0.has_duplicate = true;
-                                    total++;
-                                }
-                                if (p0.duplicates++ == 0) {
-                                    // This is the first duplicate in the current entry
-                                    total_external++;
-                                    cout.write(p0.qname+1, prefix_len-1);
-                                    cout << p0.x << ':' << y << '\n';
-                                } 
                                 if (pc.duplicates++ == 0) {
+                                    total++;
                                     total_external++;
                                     // The entry we identified as a duplicate of p0 was not already marked
                                     // as a duplicate.
                                     cout.write(pc.qname+1, prefix_len-1);
                                     cout << pc.x << ':' << compare_row.y << '\n';
+                                    if (p0.duplicates == 0) {
+                                       // This is the first duplicate in the current entry
+                                       total_external++;
+                                       cout.write(p0.qname+1, prefix_len-1);
+                                       cout << p0.x << ':' << y << '\n';
+                                    } 
                                 }
                             }
                         }
