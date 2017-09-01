@@ -226,9 +226,8 @@ class AnalysisHead {
             //    cerr << "Match in hashtable was: " << (*entry_ptr != 0) << endl;
             //    trace = true;
             //}
-            unsigned int m = 0, dup = 0;
+            unsigned int dup = 0;
             while (*entry_ptr) {
-                m++;
                 Ent* entry = (*entry_ptr);
                 //if (trace) cerr << "Reading an entry with ID " << entry->id << endl;
                 if (entry->group != group || (y - entry->y) > winy) {
