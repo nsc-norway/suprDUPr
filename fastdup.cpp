@@ -307,6 +307,7 @@ Metrics analysisLoop(
     const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
     char* seq_data = new char[buf_size];
     char* linebuf = new char[MAX_LEN];
+    char* dummybuf = new char[MAX_LEN];
     sequence.copy(seq_data, str_len, str_start);
 
     // We also accept a header between sequence and quality, doesn't need to be just
@@ -374,7 +375,8 @@ Metrics analysisLoop(
             // Number of characters read including end of line
             size_t num_read = input.gcount();
             // Ignore to the end of the sequence, then the quality, to the end of the record
-            input.ignore(interlude_len + num_read); // Ignores "+\nquality string\n"
+            input.getline(dummybuf, MAX_LEN);
+            input.getline(dummybuf, MAX_LEN);
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
