@@ -264,13 +264,13 @@ class RowProcessor {
                                     // The entry we identified as a duplicate of p0 was not already marked
                                     // as a duplicate.
                                     cout.write(pc.qname+1, prefix_len-1);
-                                    cout << pc.x << ':' << compare_row.y << '\n';
+                                    cout << pc.x << ':' << compare_row.y << endl;
                                 }
                                 if (p0.duplicates++ == 0) {
                                    // This is the first duplicate in the current entry
                                    total_external++;
                                    cout.write(p0.qname+1, prefix_len-1);
-                                   cout << p0.x << ':' << y << '\n';
+                                   cout << p0.x << ':' << y << endl;
                                 }
                                 if (!p0.has_duplicate) {
                                     p0.has_duplicate = true;
