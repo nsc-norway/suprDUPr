@@ -438,9 +438,6 @@ class AnalysisHead {
 
 int main(int argc, char* argv[]) {
 
-    // For performance
-    ios_base::sync_with_stdio(false);
-
     InputSelector isel(argc, argv);
     ofstream coordinate_file;
     bool output_dup_rows = argc >= 3;
