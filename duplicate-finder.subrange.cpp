@@ -26,10 +26,10 @@ class Entry {
     private:
         Entry(Entry& source) {}
     public:
+        bool has_duplicate = false;
+        unsigned int duplicates = 0;
         int x;
         const char* seq, * qname;
-        unsigned int duplicates = 0;
-        bool has_duplicate = false;
 
         // Entry object takes ownership of the string pointers and
         // releases them when destroyed
@@ -38,11 +38,15 @@ class Entry {
         }
 
         Entry(Entry&& source) noexcept
-           : x(source.x), seq(source.seq), duplicates(source.duplicates),
-             qname(source.qname) {
+           : has_duplicate(source.has_duplicate),
+             duplicates(source.duplicates),
+             x(source.x), seq(source.seq), qname(source.qname) {
             source.seq = nullptr;
             source.qname = nullptr;
         }
+
+        // No copy constructor!
+        Entry(const Entry& source) = delete;
 
         ~Entry() noexcept {
             delete seq;
@@ -65,7 +69,7 @@ class Row {
         row_data data;
 };
 
-typedef list<Row*> row_list;
+typedef forward_list<Row*> row_list;
 
 
 class InputSelector {
@@ -98,7 +102,6 @@ class InputSelector {
             raw_input->rdbuf()->pubsetbuf(buf_array, BUFFER_SIZE);
             buffer.reset(buf_array);
 
-            uint16_t firstInRow_two;
             uint8_t byte1, byte2;
             (*raw_input) >> byte1 >> byte2;
             raw_input->putback(byte2);
@@ -184,10 +187,10 @@ inline int bounded_levenshtein_distance(
 
 class RowProcessor {
 
+    const size_t seq_len, prefix_len;
     Row& current_row;
     const int y;
     const unsigned int winx, winy;
-    const size_t seq_len, prefix_len;
 
     public:
         row_list::iterator row_start, row_end;
@@ -216,14 +219,12 @@ class RowProcessor {
                 size_t n0 = current_row.data.size();
 
                 // Loop over columns in comparison row
-                for (row_data::iterator it_pt = compare_row.data.begin();
-                    it_pt != compare_row.data.end(); ++it_pt) {
+                for (Entry& pc : compare_row.data) {
 
-                    Entry& pc = *it_pt;
                     int minx = pc.x - winx;
                     int maxx = pc.x + winx;
 
-                    int i0;
+                    size_t i0;
                     
                     for (i0 = start_index; i0<n0; ++i0) {
                         Entry& p0 = current_row.data[i0];
@@ -251,33 +252,26 @@ class RowProcessor {
                                 STR_LEN, pc.seq
                                 );
                         bool dup = l < TOO_MANY_DIFFERENCES;
-                        /*bool dup = true;
-                        for(int i=0; dup && i<STR_LEN; ++i) {
-                            if (p0.seq[i] != pc.seq[i]) {
-                                dup = false;
-                            }
-                        }*/
                         
                         if (dup) {
                             #pragma omp critical (output)
                             {
-                                // Local p0 counting only, may already have been counted as pc
+                                if (pc.duplicates++ == 0) {
+                                    total_external++;
+                                    // The entry we identified as a duplicate of p0 was not
+                                    // already marked as a duplicate.
+                                    cout.write(pc.qname+1, prefix_len-1);
+                                    cout << pc.x << ':' << compare_row.y << '\n';
+                                }
+                                if (p0.duplicates++ == 0) {
+                                   // This is the first duplicate in the current entry
+                                   total_external++;
+                                   cout.write(p0.qname+1, prefix_len-1);
+                                   cout << p0.x << ':' << y << '\n';
+                                }
                                 if (!p0.has_duplicate) {
                                     p0.has_duplicate = true;
                                     total++;
-                                }
-                                if (p0.duplicates++ == 0) {
-                                    // This is the first duplicate in the current entry
-                                    total_external++;
-                                    cout.write(p0.qname+1, prefix_len-1);
-                                    cout << p0.x << ':' << y << '\n';
-                                } 
-                                if (pc.duplicates++ == 0) {
-                                    total_external++;
-                                    // The entry we identified as a duplicate of p0 was not already marked
-                                    // as a duplicate.
-                                    cout.write(pc.qname+1, prefix_len-1);
-                                    cout << pc.x << ':' << compare_row.y << '\n';
                                 }
                             }
                         }
@@ -296,7 +290,6 @@ class AnalysisHead {
     list<row_list*> groups;
     row_list* group;
     Row* current_row;
-    row_list::iterator end_of_group;
 
     unsigned int winx, winy;
     unsigned long total_dups, total_external_dups;
@@ -309,7 +302,8 @@ class AnalysisHead {
     public:
 
 
-        AnalysisHead(size_t seq_len, size_t prefix_len, unsigned int winx, unsigned int winy) 
+        AnalysisHead(size_t seq_len, size_t prefix_len,
+                unsigned int winx, unsigned int winy) 
             : seq_len(seq_len), prefix_len(prefix_len), winx(winx), winy(winy) {
 
             total_dups = 0;
@@ -320,15 +314,13 @@ class AnalysisHead {
 
         ~AnalysisHead() {
             #pragma omp taskwait
-            row_list::iterator it;
-            for (it=unused_row_cache.begin(); it != unused_row_cache.end(); ++it) {
-                delete *it;
+            for (auto rowptr : unused_row_cache) {
+                delete rowptr;
             }
             list<row_list*>::iterator git;
-            for (git=groups.begin(); git != groups.end(); ++git) {
-                row_list& rows = **git;
-                for (it=rows.begin(); it != rows.end(); ++it) {
-                    delete *it;
+            for (auto rows_ptr : groups) {
+                for (auto rowptr : *rows_ptr) {
+                    delete rowptr;
                 }
             }
         }
@@ -338,7 +330,7 @@ class AnalysisHead {
         void enterPoint(int x, int y, const char* seq, const char* qname) {
             if (first) {
                 current_row = getRow(y);
-                #pragma omp critical(row_operations)
+                #pragma omp critical(rowOperations)
                 {
                     // Here's a new group
                     groups.push_front(new row_list);
@@ -356,27 +348,24 @@ class AnalysisHead {
 
         void endOfGroup() {
             endOfRow();
-            #pragma omp critical(row_operations)
+            #pragma omp critical(rowOperations)
             {
                 list<row_list*>::iterator it = groups.begin();
                 if (it != groups.end()) ++it; // Skip the first group
                                               // -- won't be finished yet
-                for (; it != groups.end(); ++it) {
-                    row_list deletable;
+                while (it != groups.end()) {
                     row_list & rows = **it;
-                    row_list::iterator rit = rows.end();
-                    while (rit != rows.begin()) {
-                        rit--;
-                        if ((*rit)->done) {
-                            unused_row_cache.push_back(*rit);
-                        }
-                        else {
-                            break;
-                        }
-                    }
-                    if (rows.empty()) {
+                    bool done = all_of(rows.begin(), rows.end(), [](Row* r) {
+                            return r->done;
+                        });
+                    if (done) {
+                        for_each(rows.begin(), rows.end(),
+                                [&](Row* item) {unused_row_cache.push_front(item);});
                         delete *it;
-                        groups.erase(it);
+                        it = groups.erase(it);
+                    }
+                    else {
+                        ++it;
                     }
                 }
             }
@@ -393,7 +382,7 @@ class AnalysisHead {
 
         Row* getRow(int y) {
             Row* result;
-            #pragma omp critical(row_operations)
+            #pragma omp critical(rowOperations)
             {
                 if (!unused_row_cache.empty()) {
                     result = unused_row_cache.front();
@@ -415,7 +404,7 @@ class AnalysisHead {
             row_list::iterator start, end;
 
             // Start analysis of a row that was just entered
-            #pragma omp critical(row_operations)
+            #pragma omp critical(rowOperations)
             {
                 my_group->push_front(my_row);
                 start = my_group->begin();
@@ -431,7 +420,7 @@ class AnalysisHead {
             
             // Prevent build-up of tasks, instead halt the producer thread
             #pragma omp taskyield
-            #pragma omp task
+            #pragma omp task firstprivate(my_row, start, end)
             {
                 RowProcessor rp(seq_len, prefix_len, *my_row, winx, winy, start, end);
                 pair<unsigned int,unsigned int> n_dups = rp.analyseRow();
@@ -460,12 +449,13 @@ int main(int argc, char* argv[]) {
     }
 
     istream&input = *isel.input;
-    int i;
-    size_t start_to_coord_offset = 0, coord_to_seq_len = 0, seq_str_len = 0;
+    unsigned int i;
+    size_t start_to_coord_offset = 0, coord_to_seq_len = 0;
     string header, sequence;
     getline(input, header);
     getline(input, sequence);
-    int colons = 0, end_coords = 0, start_to_y_coord_offset;
+    unsigned int colons = 0;
+    size_t end_coords = 0, start_to_y_coord_offset = 0;
     for (i=0; i<header.size(); ++i) {
         if (header[i] == ':') {
             ++colons;
@@ -485,7 +475,7 @@ int main(int argc, char* argv[]) {
     //cerr << "DEBUG I think the end of coordinates is at: " << end_coords << endl;
     //cerr << "DEBUG header size is : " << header.size() << endl;
 
-    int x, y, y1;
+    int x, y;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
     coord_to_seq_len = header.size() - end_coords + 1;
@@ -545,7 +535,6 @@ int main(int argc, char* argv[]) {
                 valid = false;
                 break;
             }
-            y1 = y;
 
             //cerr << "DEBUG: ignoring " << coord_to_seq_len << endl;
             input.ignore(coord_to_seq_len); 
