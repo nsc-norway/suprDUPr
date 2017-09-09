@@ -239,16 +239,17 @@ class AnalysisHead {
                     //if (trace) cerr << "Group and y matches" << endl;
                     if (entry->value == new_entry->value && abs(entry->x - x) < winx) {
                         //if (trace) cerr << "Value & x matches" << endl;
+                        outout << new_entry->id << "_" << entry->id << '\n';
                         if (dup == 0) {
                             //if (trace) cerr << "dup flag was zero, outputting" << endl;
-                            outout << new_entry->id << '\n';
+                            // (perv) outout << new_entry->id << '\n';
                             new_entry->counted = true;
                         }
                         if (!entry->counted) {
                             //if (trace) cerr << "it was not already counted" << endl;
                             entry->counted = true;
-                            metrics.duplicates_dedup++;
-                            outout << entry->id << '\n';
+                            //metrics.duplicates_dedup++;
+                            // (prev) outout << entry->id << '\n';
                         }
                         dup = 1;
                     }
