@@ -239,7 +239,6 @@ class AnalysisHead {
                     //if (trace) cerr << "Group and y matches" << endl;
                     if (entry->value == new_entry->value && abs(entry->x - x) < winx) {
                         //if (trace) cerr << "Value & x matches" << endl;
-                        outout << new_entry->id << "_" << entry->id << '\n';
                         if (dup == 0) {
                             //if (trace) cerr << "dup flag was zero, outputting" << endl;
                             // (perv) outout << new_entry->id << '\n';
@@ -257,6 +256,9 @@ class AnalysisHead {
                 }
             }
             //if (trace) cerr << "-- end of loop --" << endl;
+            if (dup) {
+                        outout << new_entry->id << '\n';
+            }
             metrics.reads_with_duplicates += dup;
             metrics.num_reads++;
             *entry_ptr = new_entry;

@@ -206,38 +206,29 @@ class RowProcessor {
         pair<unsigned int, unsigned int> analyseRow() {
             unsigned int total = 0, total_external = 0;
 
-            // Loop over rows in submatrix
-            for (row_list::iterator it_row = row_start; it_row != row_end; ++it_row) {
+            for (Entry& p0 : current_row.data) {
 
-                Row& compare_row = **it_row;
 
-                if ((int)compare_row.y < (int)(y - winy)) {
-                    break; // Exit: processed all y in window
-                }
+                // Loop over rows in submatrix
+                for (row_list::iterator it_row = row_start; it_row != row_end; ++it_row) {
 
-                size_t start_index = 0; // Index of first point with x > x0-winx
-                size_t n0 = current_row.data.size();
+                    Row& compare_row = **it_row;
 
-                // Loop over columns in comparison row
-                for (Entry& pc : compare_row.data) {
-
-                    int minx = pc.x - winx;
-                    int maxx = pc.x + winx;
-
-                    size_t i0;
-                    
-                    for (i0 = start_index; i0<n0; ++i0) {
-                        Entry& p0 = current_row.data[i0];
-                        if (p0.x < minx) {
-                            start_index++;
-                        }
-                        else {
-                            break;
-                        }
+                    if ((int)compare_row.y < (int)(y - winy)) {
+                        break; // Exit: processed all y in window
                     }
-                    for (i0 = start_index; i0<n0; ++i0) {
-                        Entry& p0 = current_row.data[i0];
-                        if (p0.x > maxx ) break;
+
+                    // Loop over columns in comparison row
+                    int minx = p0.x - winx;
+                    int maxx = p0.x + winx;
+
+                    auto itc = compare_row.data.begin();
+                    while (itc->x < minx && itc != compare_row.data.end()) {
+                        ++itc;
+                    }
+                    for (; itc != compare_row.data.end(); ++itc) {
+                        Entry& pc = *itc;
+                        if (pc.x > maxx ) break;
 
                         // To prevent double-counting, only process up to p0
                         // when comparing row against itself.
@@ -256,20 +247,20 @@ class RowProcessor {
                         if (dup) {
                             #pragma omp critical (output)
                             {
-                                bool p0first = !(y < compare_row.y ||
-                                    (y == compare_row.y && p0.x < pc.x ));
-                                if (p0first) {
-                                   cout.write(p0.qname+1, prefix_len-1);
-                                   cout << p0.x << ':' << y << '_';
-                                }
-                                cout.write(pc.qname+1, prefix_len-1);
-                                cout << pc.x << ':' << compare_row.y;
-                                if (!p0first) {
-                                    cout << '_';
-                                   cout.write(p0.qname+1, prefix_len-1);
-                                   cout << p0.x << ':' << y;
-                                }
-                                cout << '\n';
+                                //bool p0first = !(y < compare_row.y ||
+                                //    (y == compare_row.y && p0.x < pc.x ));
+                                //if (p0first) {
+                                //   cout.write(p0.qname+1, prefix_len-1);
+                                //   cout << p0.x << ':' << y << '_';
+                                //}
+                                //cout.write(pc.qname+1, prefix_len-1);
+                                //cout << pc.x << ':' << compare_row.y;
+                                //if (!p0first) {
+                                //    cout << '_';
+                                //   cout.write(p0.qname+1, prefix_len-1);
+                                //   cout << p0.x << ':' << y;
+                                //}
+                                //cout << '\n';
 
                                 if (pc.duplicates++ == 0) {
                                     total_external++;
@@ -282,6 +273,8 @@ class RowProcessor {
                                 }
                                 if (!p0.has_duplicate) {
                                     p0.has_duplicate = true;
+                                   cout.write(p0.qname+1, prefix_len-1);
+                                   cout << p0.x << ':' << y << '\n';
                                     total++;
                                 }
                             }
