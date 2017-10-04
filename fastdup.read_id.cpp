@@ -241,14 +241,14 @@ class AnalysisHead {
                         //if (trace) cerr << "Value & x matches" << endl;
                         if (dup == 0) {
                             //if (trace) cerr << "dup flag was zero, outputting" << endl;
-                            outout << new_entry->id << '\n';
+                            // (perv) outout << new_entry->id << '\n';
                             new_entry->counted = true;
                         }
                         if (!entry->counted) {
                             //if (trace) cerr << "it was not already counted" << endl;
                             entry->counted = true;
-                            metrics.duplicates_dedup++;
-                            outout << entry->id << '\n';
+                            //metrics.duplicates_dedup++;
+                            // (prev) outout << entry->id << '\n';
                         }
                         dup = 1;
                     }
@@ -256,6 +256,9 @@ class AnalysisHead {
                 }
             }
             //if (trace) cerr << "-- end of loop --" << endl;
+            if (dup) {
+                        outout << new_entry->id << '\n';
+            }
             metrics.reads_with_duplicates += dup;
             metrics.num_reads++;
             *entry_ptr = new_entry;
