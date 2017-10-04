@@ -14,12 +14,14 @@
 
 #define BUFFER_SIZE 1024*1024
 
-#define SEQ_LEN 151
-#define STR_LEN 50
-#define START_BASE 10
 
 
 using namespace std;
+
+
+// Global flags (sorry)
+int str_len = 50;
+#define start_base 10
 
 
 class Entry {
@@ -195,7 +197,7 @@ class RowProcessor {
         RowProcessor(size_t seq_len, size_t prefix_len, Row& current_row,
                 unsigned int winx, unsigned int winy,
                 row_list::iterator row_start, row_list::iterator row_end)
-            : seq_len(STR_LEN), prefix_len(prefix_len),
+            : seq_len(str_len), prefix_len(prefix_len),
                 current_row(current_row), y(current_row.y),
                 winx(winx), winy(winy), row_start(row_start), row_end(row_end) {
         }
@@ -245,12 +247,12 @@ class RowProcessor {
                         // Process pc <--> p0
                         int l = bounded_levenshtein_distance(
                                 TOO_MANY_DIFFERENCES,
-                                STR_LEN, p0.seq,
-                                STR_LEN, pc.seq
+                                str_len, p0.seq,
+                                str_len, pc.seq
                                 );
                         bool dup = l < TOO_MANY_DIFFERENCES;
                         /*bool dup = true;
-                        for(int i=0; dup && i<STR_LEN; ++i) {
+                        for(int i=0; dup && i<str_len; ++i) {
                             if (p0.seq[i] != pc.seq[i]) {
                                 dup = false;
                             }
@@ -445,13 +447,11 @@ int main(int argc, char* argv[]) {
     ios_base::sync_with_stdio(false);
 
     InputSelector isel(argc, argv);
-    ofstream coordinate_file;
-    bool output_dup_rows = argc >= 3;
-    if (output_dup_rows) {
-        coordinate_file.open(argv[2], ios_base::out);
-    }
-
     istream&input = *isel.input;
+
+    // TODO argument parsing: winx winy start end mismatch
+
+
     int i;
     size_t start_to_coord_offset = 0, coord_to_seq_len = 0, seq_str_len = 0;
     string header, sequence;
@@ -489,8 +489,8 @@ int main(int argc, char* argv[]) {
     memcpy(read_name, header.c_str()+1, start_to_coord_offset-1);
     //cerr << "DEBUG the first read-id was " << read_name << endl;
 
-    char* seq_data = new char[STR_LEN];
-    sequence.copy(seq_data, STR_LEN, START_BASE);
+    char* seq_data = new char[str_len];
+    sequence.copy(seq_data, str_len, start_base);
 
     string middle_header;
     getline(input, middle_header);
@@ -552,9 +552,9 @@ int main(int argc, char* argv[]) {
             input.getline(dummy_buffer, 512);
             input.getline(dummy_buffer, 512);
 
-            if (num_read >= 1 + STR_LEN + START_BASE) {
-                seq_data = new char[STR_LEN];
-                memcpy(seq_data, buffer + START_BASE, STR_LEN);
+            if (num_read >= 1 + str_len + start_base) {
+                seq_data = new char[str_len];
+                memcpy(seq_data, buffer + start_base, str_len);
                 analysisHead.enterPoint(x, y, seq_data, next_read);
             }
 
