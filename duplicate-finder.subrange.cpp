@@ -21,7 +21,7 @@ using namespace std;
 
 // Global flags (sorry)
 int str_len = 50;
-#define start_base 10
+int start_base = 10;
 
 
 class Entry {

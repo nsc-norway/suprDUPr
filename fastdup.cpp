@@ -215,14 +215,14 @@ class AnalysisHead {
             unsigned int any_duplicate_found = 0;
             while (*entry_ptr) {
                 Ent* entry = (*entry_ptr);
-                if (entry->group != group || (y - entry->y) > winy) {
+                if ((y - entry->y) > winy || entry->group != group) {
                     *entry_ptr = entry->next;
                     delete entry;
                 }
                 else {
                     if (any_duplicate_found == 0
-                            && entry->value == new_entry->value
-                            && abs(entry->x - x) < winx) {
+                            && abs(entry->x - x) < winx
+                            && entry->value == new_entry->value) {
                         if (!entry->counted) {
                             new_entry->counted = true;
                             entry->counted = true;
@@ -374,9 +374,10 @@ Metrics analysisLoop(
 
             // Number of characters read including end of line
             size_t num_read = input.gcount();
-            // Ignore to the end of the sequence, then the quality, to the end of the record
+            // Ignore quality header, then the quality, to the end of the record
+            // Quality header length is unspecified, need to use getline
             input.getline(dummybuf, MAX_LEN);
-            input.getline(dummybuf, MAX_LEN);
+            input.ignore(num_read);
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
