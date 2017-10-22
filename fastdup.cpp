@@ -160,7 +160,6 @@ class Entry {
         VALUE value;
         short group;
         int x, y;
-        bool counted = false;
 
         Entry(short group, int x, int y, VALUE value) :
             group(group), x(x), y(y), value(value) {
@@ -175,7 +174,6 @@ class Metrics {
     // Collects totals
     public:
         bool error = false;
-        unsigned long duplicates_dedup = 0;
         unsigned long reads_with_duplicates = 0;
         unsigned long num_reads = 0;
 };
@@ -223,11 +221,6 @@ class AnalysisHead {
                     if (any_duplicate_found == 0
                             && abs(entry->x - x) < winx
                             && entry->value == new_entry->value) {
-                        if (!entry->counted) {
-                            new_entry->counted = true;
-                            entry->counted = true;
-                            metrics.duplicates_dedup++;
-                        }
                         any_duplicate_found = 1;
                     }
                     entry_ptr = &entry->next;
