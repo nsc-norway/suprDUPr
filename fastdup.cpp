@@ -218,12 +218,16 @@ class AnalysisHead {
                     delete entry;
                 }
                 else {
+                    entry_ptr = &entry->next;
                     if (any_duplicate_found == 0
                             && abs(entry->x - x) < winx
                             && entry->value == new_entry->value) {
                         any_duplicate_found = 1;
                     }
-                    entry_ptr = &entry->next;
+                    else if (any_duplicate_found) {
+                        (new_entry)->next = entry;
+                        break;
+                    }
                 }
             }
             metrics.reads_with_duplicates += any_duplicate_found;
