@@ -76,9 +76,9 @@ class InputSelector {
 template <size_t N>
 class TwoBitSequence {
 public:
-    unsigned long data[N] = {};
+    array<unsigned long, N> data = {};
     // Have half the number of unk's for N bases, but round up
-    unsigned long unk[(N+1)/2] = {};
+    array<unsigned long, (N+1)/2> unk = {};
     
     inline TwoBitSequence(const char* seq) {
         /* Conversion of ASCII string to 2-bit codes + unknown (N) flag:
@@ -129,15 +129,7 @@ public:
     }
 
     inline bool operator==(const TwoBitSequence& other) const {
-        for (int i=0; i<N; ++i) {
-            if (data[i] != other.data[i]) 
-                return false;
-        }
-        for (int i=0; i<(N+1)/2; ++i) {
-            if (unk[i] != other.unk[i])
-                return false;
-        }
-        return true;
+        return data == other.data && unk == other.unk;
     }
 
     inline size_t hash() const {
@@ -218,16 +210,14 @@ class AnalysisHead {
                     delete entry;
                 }
                 else {
-                    entry_ptr = &entry->next;
                     if (any_duplicate_found == 0
                             && abs(entry->x - x) < winx
                             && entry->value == new_entry->value) {
                         any_duplicate_found = 1;
-                    }
-                    else if (any_duplicate_found) {
                         (new_entry)->next = entry;
                         break;
                     }
+                    entry_ptr = &entry->next;
                 }
             }
             metrics.reads_with_duplicates += any_duplicate_found;
