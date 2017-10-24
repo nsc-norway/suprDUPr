@@ -114,7 +114,7 @@ public:
             }
             size_t jshift, nshift;
 	    j = 0;
-            if (i & 1 == 1) 
+            if ((i & 1) == 1) 
                 nshift = 4;
             else
                 nshift = 0;
@@ -149,9 +149,9 @@ class Entry {
     // on the flow cell. 
     public:
         Entry* next = nullptr;
-        VALUE value;
         short group;
         int x, y;
+        VALUE value;
 
         Entry(short group, int x, int y, VALUE value) :
             group(group), x(x), y(y), value(value) {
@@ -247,8 +247,7 @@ Metrics analysisLoop(
     // Do some more work to determine the header format. In Illumina format, the 
     // x coordinate is after the fifth colon and the y coordinate after the sixth 
     // colon up to a space.
-    size_t start_to_coord_offset, start_to_y_coord_offset;
-    size_t coord_to_quality_offset = 1; // Default is \n+\n, but could be longer
+    size_t start_to_coord_offset = 0, start_to_y_coord_offset = 0;
     size_t colons = 0, end_coords = 0; // temporary variables
     size_t i;
     for (i=0; i<header.size(); ++i) {
@@ -309,8 +308,6 @@ Metrics analysisLoop(
         m.error = true;
         return m;
     }
-    // Include header line and one line break
-    size_t interlude_len = middle_header.size() + 1;
 
     input.ignore(1 + seq_len); // Ignores quality scores and \n
 
