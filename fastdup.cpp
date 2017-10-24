@@ -232,7 +232,7 @@ class AnalysisHead {
 
 template <typename VALUE>
 Metrics analysisLoop(
-        size_t hash_bytes, int str_start, int str_len,
+        size_t hash_bytes, size_t str_start, size_t str_len,
         int winx, int winy, istream& input,
         const string& header, const string& sequence
         ) {
