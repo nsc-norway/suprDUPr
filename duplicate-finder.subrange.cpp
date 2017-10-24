@@ -20,8 +20,8 @@ using namespace std;
 
 
 // Global flags (sorry)
-int str_len = 50;
-int start_base = 10;
+unsigned int str_len = 50;
+unsigned int start_base = 10;
 
 
 class Entry {
@@ -451,7 +451,7 @@ int main(int argc, char* argv[]) {
 
 
     unsigned int i;
-    size_t start_to_coord_offset = 0, coord_to_seq_len = 0, seq_str_len = 0;
+    size_t start_to_coord_offset = 0, coord_to_seq_len = 0;
     string header, sequence;
     getline(input, header);
     getline(input, sequence);
