@@ -12,14 +12,16 @@
 #include "gzip.hpp"
 #include <boost/program_options.hpp>
 
-#define MAX_LEN 256
+// This constant contains the maximum length of the sequence read, used for the
+// buffer size.
+#define MAX_LEN 1024
 
 using namespace std;
 namespace po = boost::program_options;
 
 class InputSelector {
-    // InputSelector class sets up the input stream to STDIN or opens a file,
-    // and detects GZIP compressed data.
+    // InputSelector class sets up the input stream from STDIN, or opens a file,
+    // and detects whether the input is GZIP compressed.
     private:
         istream* raw_input, *input_ptr;
         unique_ptr<istream> filtered_input;
@@ -75,6 +77,8 @@ class InputSelector {
 
 template <size_t N>
 class TwoBitSequence {
+    // Class to hold the sequence, in an efficient two-bit encoding.
+ 
 public:
     unsigned long data[N] = {};
     // Have half the number of unk's for N bases, but round up
@@ -162,7 +166,6 @@ class Entry {
         short group;
         int x, y;
         string id;
-        bool counted = false;
 
         inline Entry(short group, int x, int y, const string&id, VALUE value) :
             group(group), x(x), y(y), id(id), value(value) {
@@ -217,49 +220,29 @@ class AnalysisHead {
         void enterPoint(int x, int y, const string& id, const char* str) {
             Ent* new_entry = new Ent(group,x,y,id,str);
             Ent** entry_ptr = &data[new_entry->value.hash() & mask];
-            //bool trace = false;
-            //if (id == "E00401:15:HNCMCCCXX:1:1115:13545:40178"
-            //        || id == "E00401:15:HNCMCCCXX:1:1115:13545:40108") {
-            //    cerr << "ENTRY: " << id << endl;
-            //    cerr << "THE HASH OF THIS MAGIC ENTRY IS: " 
-            //        << new_entry->value.hash() << endl;
-            //    cerr << "Match in hashtable was: " << (*entry_ptr != 0) << endl;
-            //    trace = true;
-            //}
-            unsigned int dup = 0;
+            bool any_duplicate_found = false;
             while (*entry_ptr) {
                 Ent* entry = (*entry_ptr);
-                //if (trace) cerr << "Reading an entry with ID " << entry->id << endl;
-                if (entry->group != group || (y - entry->y) > winy) {
-                    //if (trace) cerr << "Group or y mismatch" << endl;
+                if ((y - entry->y) > winy || entry->group != group) {
                     *entry_ptr = entry->next;
                     delete entry;
                 }
-                else {
-                    //if (trace) cerr << "Group and y matches" << endl;
-                    if (entry->value == new_entry->value && abs(entry->x - x) < winx) {
-                        //if (trace) cerr << "Value & x matches" << endl;
-                        if (dup == 0) {
-                            //if (trace) cerr << "dup flag was zero, outputting" << endl;
-                            // (perv) outout << new_entry->id << '\n';
-                            new_entry->counted = true;
-                        }
-                        if (!entry->counted) {
-                            //if (trace) cerr << "it was not already counted" << endl;
-                            entry->counted = true;
-                            //metrics.duplicates_dedup++;
-                            // (prev) outout << entry->id << '\n';
-                        }
-                        dup = 1;
+                else 
+                    if (!any_duplicate_found
+                            && abs(entry->x - x) < winx
+                            && entry->value == new_entry->value) {
+                        any_duplicate_found = true;
+                        break;
                     }
                     entry_ptr = &entry->next;
                 }
             }
-            //if (trace) cerr << "-- end of loop --" << endl;
-            if (dup) {
-                        outout << new_entry->id << '\n';
+            if (any_duplicate_found) {
+                // vvv -- This is only for read_id mode -- make conditional
+                outout << new_entry->id << '\n';
+                // ^^^
+                metrics.reads_with_duplicates++;
             }
-            metrics.reads_with_duplicates += dup;
             metrics.num_reads++;
             *entry_ptr = new_entry;
         }
@@ -419,28 +402,27 @@ int main(int argc, char* argv[]) {
     int first_base, last_base = -1;
     size_t hash_bytes;
 
-    cerr << "** Fastdup: quantify sequencing duplication in Illumina HiSeq 3000/4000/X runs **\n\n";
-    cerr << "Fastdup called with args: ";
+    cerr << "** This is fastdup, the duplicate counter program **\n";
     for (int i=1; i!=argc; ++i) {
         cerr << argv[i] << ' ';
     }
-    cerr << '\n';
+    cerr << "\n\n";
 
     po::options_description visible("Allowed options");
     visible.add_options()
         ("winx,x", po::value<unsigned int>(&winx)->default_value(2500), "x coordinate window, +/- pixels")
         ("winy,y", po::value<unsigned int>(&winy)->default_value(2500), "y coordinate window, +/- pixels")
         ("start,s", po::value<int>(&first_base)->default_value(10),
-            "First base position in reads to consider")
+            "First nucleotide position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
-            "Last base position in reads to consider (use -1 for all bases)")
+            "Last nucleotide position in reads to consider (use -1 for all bases)")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
-            "Hash table size (bytes), *must* be a power of 2. (increase if winy>2500).")
+            "Hash table size (bytes), must be a power of 2. (increase if winy>2500).")
         ("help,h", "Show this help message")
     ;
     po::options_description positionals("Positional options(hidden)");
     positionals.add_options()
-        ("input-file", po::value<string>(&inputfile), "Input file, or - to read from STDIN")
+        ("input-file", po::value<string>(&inputfile)->required(), "Input file, or - to read from STDIN")
         ("output-file", po::value<string>(&outputfile), "Output file, or - to write to STDOUT")
     ;
     po::options_description all_options("Allowed options");
@@ -457,22 +439,23 @@ int main(int argc, char* argv[]) {
                 po::command_line_parser(argc, argv).options(all_options).positional(pos_desc).run(),
                 vm
                 );
-        po::notify(vm);
+        if (vm.count("help") > 0) {
+            cerr << "usage: " << argv[0] << " [options] input_file [output_file] \n";
+            cerr << visible << '\n';
+            return 0;
+        }
+        else {
+            po::notify(vm);
+        }
     }
     catch(po::error& e) 
     { 
       cerr << "ERROR: " << e.what() << "\n\n"; 
+      cerr << "usage: " << argv[0] << " [options] input_file [output_file] \n";
       cerr << visible << endl; 
       return 1; 
     } 
 
-
-    if (vm.count("help") > 0) {
-        cerr << "usage: " << argv[0] << " [options] [input_file [output_file]] \n";
-        cerr << visible << '\n';
-        return 0;
-    }
-    
     InputSelector isel(inputfile);
 
     if (!isel.valid) {
@@ -505,7 +488,7 @@ int main(int argc, char* argv[]) {
     if (last_base == -1) last_base = seq_len;
     size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
 
-    cerr << "Using bases from " << first_base << " to " << first_base+str_len << endl;
+    cerr << "Using nucleotides from " << first_base << " to " << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
     Metrics result;
@@ -554,7 +537,7 @@ int main(int argc, char* argv[]) {
         return 1; // error flag
     }
     else if (input.eof() && output.good()) {
-        cerr << "Completed. Processed " << result.num_reads << " records." << endl;
+        cerr << "Completed. Analysed " << result.num_reads << " records." << endl;
         cerr << "NUM_READS\tREADS_WITH_DUP\tDUP_RATIO\n";
         cerr << result.num_reads 
             << '\t' << result.reads_with_duplicates 
