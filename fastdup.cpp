@@ -12,7 +12,10 @@
 #include "gzip.hpp"
 #include <boost/program_options.hpp>
 
-#define MAX_LEN 256
+
+// This constant contains the maximum length of the sequence read, used for the
+// buffer size.
+#define MAX_LEN 1024
 
 using namespace std;
 namespace po = boost::program_options;
