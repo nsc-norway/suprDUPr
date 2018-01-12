@@ -167,12 +167,8 @@ class Entry {
         int x, y;
         string id;
 
-        inline Entry(short group, int x, int y, const string&id, VALUE value) :
-            group(group), x(x), y(y), id(id), value(value) {
-        }
-
-        Entry(short group, int x, int y, const string& id, const char* seq) :
-            group(group), x(x), y(y), id(id), value(seq) {
+        Entry(short group, int x, int y, const char* id, size_t idlen, const char* seq) :
+            group(group), x(x), y(y), id(id, idlen), value(seq) {
         }
 };
 
@@ -217,8 +213,8 @@ class AnalysisHead {
             delete data;
         }
 
-        void enterPoint(int x, int y, const string& id, const char* str) {
-            Ent* new_entry = new Ent(group,x,y,id,str);
+        void enterPoint(int x, int y, const char* id, size_t idlen, const char* str) {
+            Ent* new_entry = new Ent(group,x,y,id,idlen,str);
             Ent** entry_ptr = &data[new_entry->value.hash() & mask];
             bool any_duplicate_found = false;
             while (*entry_ptr) {
@@ -227,20 +223,16 @@ class AnalysisHead {
                     *entry_ptr = entry->next;
                     delete entry;
                 }
-                else 
-                    if (!any_duplicate_found
-                            && abs(entry->x - x) < winx
-                            && entry->value == new_entry->value) {
+                else {
+                    if (abs(entry->x - x) < winx
+                        && entry->value == new_entry->value) {
                         any_duplicate_found = true;
-                        break;
+                        outout << entry->id <<'\t' << new_entry->id << '\n';
                     }
                     entry_ptr = &entry->next;
                 }
             }
             if (any_duplicate_found) {
-                // vvv -- This is only for read_id mode -- make conditional
-                outout << new_entry->id << '\n';
-                // ^^^
                 metrics.reads_with_duplicates++;
             }
             metrics.num_reads++;
@@ -295,7 +287,7 @@ Metrics analysisLoop(
 
     // Read the x/y of the first entry in a special way, because we have already
     // read the lines into memory.
-    int x, y;
+    unsigned int x, y;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
     size_t coord_to_seq_offset = header.size() - end_coords + 1;
@@ -309,14 +301,15 @@ Metrics analysisLoop(
     }
 
     // Read identifier prefix (before coordinates)
-    char read_id[2][start_to_coord_offset];
-    memcpy(read_id[0], &header[0], start_to_coord_offset);
+    char read_id[start_to_coord_offset];
+    memcpy(read_id, &header[0], start_to_coord_offset);
     int ibuf = 1; // Identifier of where to write next read ID prefix (0/1)
 
     const size_t pad_to = sizeof(unsigned long) * 4;
     const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
     char* seq_data = new char[buf_size];
     char* linebuf = new char[MAX_LEN];
+    char* headerbuf = new char[MAX_LEN];
     char* dummybuf = new char[MAX_LEN];
     sequence.copy(seq_data, str_len, str_start);
 
@@ -341,25 +334,29 @@ Metrics analysisLoop(
     cerr << "Started reading FASTQ file..." << endl;
 
     if (input) {
-        analysisHead.enterPoint(x, y, header.substr(1, end_coords - 1), seq_data);
+        analysisHead.enterPoint(x, y, header.c_str() + 1, end_coords, seq_data);
         while (input) { // Input loop
-            // Read the read ID (query name) up to the coordinates
-            input.read(read_id[ibuf], start_to_coord_offset);
+            input.getline(headerbuf, MAX_LEN);
+
             if (!input) break;
             // If it doesn't match the last one, signal "end of group" (tile)
-            if (memcmp(read_id[0], read_id[1], start_to_coord_offset) != 0) {
+            if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
                 analysisHead.endOfGroup();
+                memcpy(read_id, headerbuf, start_to_coord_offset);
             }
-            stringstream ss;
-            ss.write(read_id[ibuf]+1, start_to_coord_offset-1);
-            ibuf = ibuf == 0 ? 1 : 0;
 
             // Read the coordinates, then ignore the rest of the header line
-            char colon_test;
-            input >> x >> colon_test >> y;
-            input.ignore(coord_to_seq_offset);
-
-            if (colon_test != ':') {
+            char* ptr;
+            x = (unsigned int)strtoul(headerbuf+start_to_coord_offset, &ptr, 10);
+            if (*ptr != ':') {
+                cerr << "Invalid file format detected. All reads must be of the same length, "
+                     << "and the header must be the standard Illumina header." << endl;
+                Metrics m;
+                m.error = true;
+                return m;
+            }
+            y = (unsigned int)strtoul(ptr+1, &ptr, 10);
+            if (*ptr != ' ' && *ptr != '\0') {
                 cerr << "Invalid file format detected. All reads must be of the same length, "
                      << "and the header must be the standard Illumina header." << endl;
                 Metrics m;
@@ -367,20 +364,21 @@ Metrics analysisLoop(
                 return m;
             }
 
-            // Read sequence substring
+            // Read sequence string
             input.getline(linebuf, MAX_LEN);
 
             // Number of characters read including end of line
             size_t num_read = input.gcount();
-            // Ignore to the end of the sequence, then the quality, to the end of the record
+            // Ignore the quality header and quality, to the end of the record
             input.getline(dummybuf, MAX_LEN);
             input.getline(dummybuf, MAX_LEN);
 
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
-                ss << x << ':' << y;
-            	analysisHead.enterPoint(x, y, ss.str(), seq_data);
+                // Use ID string up to after the y coordinate, so we null-terminate it
+                size_t id_len = ptr - headerbuf - 1;
+            	analysisHead.enterPoint(x, y, headerbuf + 1, id_len, seq_data);
             }
 
             if (analysisHead.metrics.num_reads % 1000000 == 0)
