@@ -8,8 +8,8 @@
 #include <forward_list>
 
 #include <boost/iostreams/filtering_stream.hpp>
-//#include <boost/iostreams/filter/gzip.hpp>
-#include "gzip.hpp"
+#include <boost/iostreams/filter/gzip.hpp>
+//#include "gzip.hpp"
 #include <boost/program_options.hpp>
 
 // Fastdup duplicate detection tool
@@ -65,7 +65,6 @@ class InputSelector {
             raw_input->putback(byte1);
 
             if (byte1 == 0x1f && byte2 == 0x8b) {
-                cerr << "Input is GZIP compressed" << endl;
                 in.push(boost::iostreams::gzip_decompressor());
                 in.push(*raw_input);
                 input = &in;
@@ -434,6 +433,10 @@ Metrics analysisLoop(
 }
 
 
+void printUsage(const char* program_name) {
+    cerr << "usage: " << program_name << " [options] input_file [output_file] \n";
+}
+
 
 int main(int argc, char* argv[]) {
 
@@ -444,16 +447,12 @@ int main(int argc, char* argv[]) {
     int first_base, last_base = -1;
     size_t hash_bytes;
 
-    cerr << "** This is fastdup, the duplicate counter program **\n";
-    for (int i=1; i!=argc; ++i) {
-        cerr << argv[i] << ' ';
-    }
-    cerr << "\n\n";
-
     po::options_description visible("Allowed options");
     visible.add_options()
-        ("winx,x", po::value<unsigned int>(&winx)->default_value(2500), "x coordinate window, +/- pixels")
-        ("winy,y", po::value<unsigned int>(&winy)->default_value(2500), "y coordinate window, +/- pixels")
+        ("winx,x", po::value<unsigned int>(&winx)->default_value(2500),
+            "x coordinate window, +/- pixels")
+        ("winy,y", po::value<unsigned int>(&winy)->default_value(2500),
+            "y coordinate window, +/- pixels")
         ("start,s", po::value<int>(&first_base)->default_value(10),
             "First nucleotide position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
@@ -464,8 +463,10 @@ int main(int argc, char* argv[]) {
     ;
     po::options_description positionals("Positional options(hidden)");
     positionals.add_options()
-        ("input-file", po::value<string>(&inputfile)->required(), "Input file, or - to read from STDIN")
-        ("output-file", po::value<string>(&outputfile), "Output file, or - to write to STDOUT")
+        ("input-file", po::value<string>(&inputfile)->required(),
+            "Input file, or - to read from STDIN")
+        ("output-file", po::value<string>(&outputfile),
+            "Output file, or - to write to STDOUT")
     ;
     po::options_description all_options("Allowed options");
     all_options.add(visible);
@@ -482,9 +483,17 @@ int main(int argc, char* argv[]) {
                 vm
                 );
         if (vm.count("help") > 0) {
-            cerr << "usage: " << argv[0] << " [options] input_file [output_file] \n";
+            printUsage(argv[0]);
             cerr << visible << '\n';
+            cerr << "  Specify - for input_file to read from stdin." << endl;
             return 0;
+        }
+        else if (vm.count("input-file") != 1) {
+            cerr << "ERROR: Argument input_file is required." << endl;
+            printUsage(argv[0]);
+            cerr << visible << '\n';
+            cerr << "  Specify - for input_file to read from stdin." << endl;
+            return 1;
         }
         else {
             po::notify(vm);
@@ -493,7 +502,7 @@ int main(int argc, char* argv[]) {
     catch(po::error& e) 
     { 
       cerr << "ERROR: " << e.what() << "\n\n"; 
-      cerr << "usage: " << argv[0] << " [options] input_file [output_file] \n";
+      printUsage(argv[0]);
       cerr << visible << endl; 
       return 1; 
     } 
@@ -509,6 +518,8 @@ int main(int argc, char* argv[]) {
         }
         return 1;
     }
+
+    cerr << "-- fastdup v1.0 --\n";
 
     ostream* output_ptr = &cout;
     ofstream output_file;
@@ -530,7 +541,8 @@ int main(int argc, char* argv[]) {
     if (last_base == -1) last_base = seq_len;
     size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
 
-    cerr << "Using nucleotides from " << first_base << " to " << first_base+str_len << endl;
+    cerr << "Using nucleotides positions from " << first_base << " to "
+         << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
     Metrics result;
