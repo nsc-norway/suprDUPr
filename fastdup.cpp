@@ -12,7 +12,6 @@
 #include "gzip.hpp"
 #include <boost/program_options.hpp>
 
-
 // This constant contains the maximum length of the sequence read, used for the
 // buffer size.
 #define MAX_LEN 1024
@@ -21,8 +20,8 @@ using namespace std;
 namespace po = boost::program_options;
 
 class InputSelector {
-    // InputSelector class sets up the input stream to STDIN or opens a file,
-    // and detects GZIP compressed data.
+    // InputSelector class sets up the input stream from STDIN, or opens a file,
+    // and detects whether the input is GZIP compressed.
     private:
         istream* raw_input, *input_ptr;
         unique_ptr<istream> filtered_input;
@@ -78,10 +77,12 @@ class InputSelector {
 
 template <size_t N>
 class TwoBitSequence {
+    // Class to hold the sequence, in an efficient two-bit encoding.
+ 
 public:
-    array<unsigned long, N> data = {};
+    unsigned long data[N] = {};
     // Have half the number of unk's for N bases, but round up
-    array<unsigned long, (N+1)/2> unk = {};
+    unsigned long unk[(N+1)/2] = {};
     
     inline TwoBitSequence(const char* seq) {
         /* Conversion of ASCII string to 2-bit codes + unknown (N) flag:
@@ -116,12 +117,12 @@ public:
                 data[i] |= (blocks[i*4+j+1] & (0x0606060606060606ul)) << (j*2+1);
             }
             size_t jshift, nshift;
-	    j = 0;
-            if ((i & 1) == 1) 
+            j = 0;
+            if (i & 1 == 1)
                 nshift = 4;
             else
                 nshift = 0;
-	    jshift = nshift;
+            jshift = nshift;
             for (; jshift<3; ++jshift) {
                 unk[i/2] |= (blocks[i*4+(j++)] & (0x0808080808080808ul)) >> (3-jshift);
             }
@@ -132,7 +133,15 @@ public:
     }
 
     inline bool operator==(const TwoBitSequence& other) const {
-        return data == other.data && unk == other.unk;
+        for (int i=0; i<N; ++i) {
+            if (data[i] != other.data[i]) 
+                return false;
+        }
+        for (int i=0; i<(N+1)/2; ++i) {
+            if (unk[i] != other.unk[i])
+                return false;
+        }
+        return true;
     }
 
     inline size_t hash() const {
@@ -146,29 +155,35 @@ public:
     }
 };
 
+
 template<typename VALUE>
 class Entry {
     // This class represents a single sequence read at a specific position 
     // on the flow cell. 
     public:
         Entry* next = nullptr;
+        VALUE value;
         short group;
         int x, y;
-        VALUE value;
+#ifdef OUTPUT_READ_ID
+        string id;
 
-        Entry(short group, int x, int y, VALUE value) :
-            group(group), x(x), y(y), value(value) {
+        Entry(short group, int x, int y, const char* id, size_t idlen, const char* seq) :
+            group(group), x(x), y(y), id(id, idlen), value(seq) {
         }
-
+#else
         Entry(short group, int x, int y, const char* seq) :
             group(group), x(x), y(y), value(seq) {
         }
+#endif
+
 };
 
 class Metrics {
     // Collects totals
     public:
         bool error = false;
+        unsigned long duplicates_dedup = 0;
         unsigned long reads_with_duplicates = 0;
         unsigned long num_reads = 0;
 };
@@ -178,6 +193,7 @@ class AnalysisHead {
 
     /* The AnalysisHead class receives read one by one from the main program, and 
      * manages the processing of rows, and groups (tiles). */
+    ostream& outout;
 
     const size_t hash_size;
     const size_t mask;
@@ -192,8 +208,10 @@ class AnalysisHead {
     public:
     Metrics metrics;
         
-        AnalysisHead(size_t hash_bytes, unsigned int winx, unsigned int winy) 
-            : hash_size(hash_bytes/sizeof(Ent*)), mask(hash_size-1),
+        AnalysisHead(ostream& outout, 
+                size_t hash_bytes, unsigned int winx, unsigned int winy) 
+            : outout(outout),
+                hash_size(hash_bytes/sizeof(Ent*)), mask(hash_size-1),
                 winx(winx), winy(winy) {
             data = new Ent*[hash_size];
         }
@@ -202,10 +220,15 @@ class AnalysisHead {
             delete data;
         }
 
+#ifdef OUTPUT_READ_ID
+        void enterPoint(int x, int y, const char* id, size_t idlen, const char* str) {
+            Ent* new_entry = new Ent(group,x,y,id,idlen,str);
+#else
         void enterPoint(int x, int y, const char* str) {
             Ent* new_entry = new Ent(group,x,y,str);
+#endif
             Ent** entry_ptr = &data[new_entry->value.hash() & mask];
-            unsigned int any_duplicate_found = 0;
+            bool any_duplicate_found = false;
             while (*entry_ptr) {
                 Ent* entry = (*entry_ptr);
                 if ((y - entry->y) > winy || entry->group != group) {
@@ -213,6 +236,15 @@ class AnalysisHead {
                     delete entry;
                 }
                 else {
+#ifdef OUTPUT_READ_ID
+                    if (abs(entry->x - x) < winx
+                        && entry->value == new_entry->value) {
+                        any_duplicate_found = true;
+                        outout << entry->id <<'\t' << new_entry->id << '\n';
+                    }
+#else
+                    // This is a more optimised version, which breaks out of the loop
+                    // on the first match, to work better on files with many duplicates
                     if (any_duplicate_found == 0
                             && abs(entry->x - x) < winx
                             && entry->value == new_entry->value) {
@@ -220,10 +252,13 @@ class AnalysisHead {
                         (new_entry)->next = entry;
                         break;
                     }
+#endif
                     entry_ptr = &entry->next;
                 }
             }
-            metrics.reads_with_duplicates += any_duplicate_found;
+            if (any_duplicate_found) {
+                metrics.reads_with_duplicates++;
+            }
             metrics.num_reads++;
             *entry_ptr = new_entry;
         }
@@ -235,7 +270,8 @@ class AnalysisHead {
 
 template <typename VALUE>
 Metrics analysisLoop(
-        size_t hash_bytes, size_t str_start, size_t str_len,
+        ostream& output,
+        size_t hash_bytes, int str_start, int str_len,
         int winx, int winy, istream& input,
         const string& header, const string& sequence
         ) {
@@ -250,7 +286,8 @@ Metrics analysisLoop(
     // Do some more work to determine the header format. In Illumina format, the 
     // x coordinate is after the fifth colon and the y coordinate after the sixth 
     // colon up to a space.
-    size_t start_to_coord_offset = 0, start_to_y_coord_offset = 0;
+    size_t start_to_coord_offset, start_to_y_coord_offset;
+    size_t coord_to_quality_offset = 1; // Default is \n+\n, but could be longer
     size_t colons = 0, end_coords = 0; // temporary variables
     size_t i;
     for (i=0; i<header.size(); ++i) {
@@ -274,7 +311,7 @@ Metrics analysisLoop(
 
     // Read the x/y of the first entry in a special way, because we have already
     // read the lines into memory.
-    int x, y;
+    unsigned int x, y;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
     size_t coord_to_seq_offset = header.size() - end_coords + 1;
@@ -288,14 +325,15 @@ Metrics analysisLoop(
     }
 
     // Read identifier prefix (before coordinates)
-    char read_id[2][start_to_coord_offset];
-    memcpy(read_id[0], &header[0], start_to_coord_offset);
+    char read_id[start_to_coord_offset];
+    memcpy(read_id, &header[0], start_to_coord_offset);
     int ibuf = 1; // Identifier of where to write next read ID prefix (0/1)
 
     const size_t pad_to = sizeof(unsigned long) * 4;
     const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
     char* seq_data = new char[buf_size];
     char* linebuf = new char[MAX_LEN];
+    char* headerbuf = new char[MAX_LEN];
     char* dummybuf = new char[MAX_LEN];
     sequence.copy(seq_data, str_len, str_start);
 
@@ -311,64 +349,68 @@ Metrics analysisLoop(
         m.error = true;
         return m;
     }
+    size_t interlude_len = middle_header.size() + 2;
 
     input.ignore(1 + seq_len); // Ignores quality scores and \n
 
-    AnalysisHead<VALUE> analysisHead(hash_bytes, winx, winy);
+    AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy);
 
     cerr << "Started reading FASTQ file..." << endl;
 
     if (input) {
-        // This point was already read
+#ifdef OUTPUT_READ_ID
+        analysisHead.enterPoint(x, y, header.c_str() + 1, end_coords, seq_data);
+#else
         analysisHead.enterPoint(x, y, seq_data);
-
+#endif
         while (input) { // Input loop
-            // Read the read ID (query name) up to the coordinates
-            input.read(read_id[ibuf], start_to_coord_offset);
+            input.getline(headerbuf, MAX_LEN);
+
             if (!input) break;
             // If it doesn't match the last one, signal "end of group" (tile)
-            if (memcmp(read_id[0], read_id[1], start_to_coord_offset) != 0) {
+            if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
                 analysisHead.endOfGroup();
+                memcpy(read_id, headerbuf, start_to_coord_offset);
             }
-            if (read_id[ibuf][0] != '@') {
-                cerr << "Header format error: expected it to start with '@', got '" 
-                     << read_id[ibuf][0] << "' at record #" << analysisHead.metrics.num_reads
-                     << "." << endl;
-                Metrics m;
-                m.error = true;
-                return m;
-            }
-            ibuf = ibuf == 0 ? 1 : 0;
 
             // Read the coordinates, then ignore the rest of the header line
-            char colon_test;
-            input >> x >> colon_test >> y;
-            input.ignore(coord_to_seq_offset);
-
-            if (colon_test != ':') {
+            char* ptr;
+            x = (unsigned int)strtoul(headerbuf+start_to_coord_offset, &ptr, 10);
+            if (*ptr != ':') {
                 cerr << "Invalid file format detected. All reads must be of the same length, "
                      << "and the header must be the standard Illumina header." << endl;
-                cerr << "Expected ':' at line " << analysisHead.metrics.num_reads * 4 + 1
-                     << ", got '" << (colon_test ? colon_test : '0') << "' (with x=" << x
-                     << ", y=" << y << ")." << endl;
+                Metrics m;
+                m.error = true;
+                return m;
+            }
+            y = (unsigned int)strtoul(ptr+1, &ptr, 10);
+            if (*ptr != ' ' && *ptr != '\0') {
+                cerr << "Invalid file format detected. All reads must be of the same length, "
+                     << "and the header must be the standard Illumina header." << endl;
                 Metrics m;
                 m.error = true;
                 return m;
             }
 
-            // Read sequence substring
+            // Read sequence string
             input.getline(linebuf, MAX_LEN);
 
             // Number of characters read including end of line
             size_t num_read = input.gcount();
-            // Ignore quality header, then the quality, to the end of the record
-            // Quality header length is unspecified, need to use getline
+            // Ignore the quality header and quality, to the end of the record
             input.getline(dummybuf, MAX_LEN);
-            input.ignore(num_read);
+            input.getline(dummybuf, MAX_LEN);
+
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
-                analysisHead.enterPoint(x, y, seq_data);
+                // Use ID string up to after the y coordinate, so we null-terminate it
+                size_t id_len = ptr - headerbuf - 1;
+#ifdef OUTPUT_READ_ID
+            	analysisHead.enterPoint(x, y, headerbuf + 1, id_len, seq_data);
+#else
+            	analysisHead.enterPoint(x, y, seq_data);
+#endif
             }
 
             if (analysisHead.metrics.num_reads % 1000000 == 0)
@@ -390,21 +432,27 @@ int main(int argc, char* argv[]) {
     int first_base, last_base = -1;
     size_t hash_bytes;
 
+    cerr << "** This is fastdup, the duplicate counter program **\n";
+    for (int i=1; i!=argc; ++i) {
+        cerr << argv[i] << ' ';
+    }
+    cerr << "\n\n";
+
     po::options_description visible("Allowed options");
     visible.add_options()
         ("winx,x", po::value<unsigned int>(&winx)->default_value(2500), "x coordinate window, +/- pixels")
         ("winy,y", po::value<unsigned int>(&winy)->default_value(2500), "y coordinate window, +/- pixels")
         ("start,s", po::value<int>(&first_base)->default_value(10),
-            "First base position in reads to consider")
+            "First nucleotide position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
-            "Last base position in reads to consider (use -1 for all bases)")
+            "Last nucleotide position in reads to consider (use -1 for all bases)")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
-            "Hash table size (bytes), *must* be a power of 2. (increase if winy>2500).")
+            "Hash table size (bytes), must be a power of 2. (increase if winy>2500).")
         ("help,h", "Show this help message")
     ;
     po::options_description positionals("Positional options(hidden)");
     positionals.add_options()
-        ("input-file", po::value<string>(&inputfile), "Input file, or - to read from STDIN")
+        ("input-file", po::value<string>(&inputfile)->required(), "Input file, or - to read from STDIN")
         ("output-file", po::value<string>(&outputfile), "Output file, or - to write to STDOUT")
     ;
     po::options_description all_options("Allowed options");
@@ -421,22 +469,23 @@ int main(int argc, char* argv[]) {
                 po::command_line_parser(argc, argv).options(all_options).positional(pos_desc).run(),
                 vm
                 );
-        po::notify(vm);
+        if (vm.count("help") > 0) {
+            cerr << "usage: " << argv[0] << " [options] input_file [output_file] \n";
+            cerr << visible << '\n';
+            return 0;
+        }
+        else {
+            po::notify(vm);
+        }
     }
     catch(po::error& e) 
     { 
       cerr << "ERROR: " << e.what() << "\n\n"; 
+      cerr << "usage: " << argv[0] << " [options] input_file [output_file] \n";
       cerr << visible << endl; 
       return 1; 
     } 
 
-
-    if (vm.count("help") > 0) {
-        cerr << "usage: " << argv[0] << " [options] [input_file [output_file]] \n";
-        cerr << visible << '\n';
-        return 0;
-    }
-    
     InputSelector isel(inputfile);
 
     if (!isel.valid) {
@@ -469,7 +518,7 @@ int main(int argc, char* argv[]) {
     if (last_base == -1) last_base = seq_len;
     size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
 
-    cerr << "Using bases from " << first_base << " to " << first_base+str_len << endl;
+    cerr << "Using nucleotides from " << first_base << " to " << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
     Metrics result;
@@ -480,26 +529,31 @@ int main(int argc, char* argv[]) {
     }
     else if (str_len > 128) {
         result = analysisLoop<TwoBitSequence<5>>(
+                output,
                 hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 96) {
         result = analysisLoop<TwoBitSequence<4>>(
+                output,
                 hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 64) {
         result = analysisLoop<TwoBitSequence<3>>(
+                output,
                 hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 32) {
         result = analysisLoop<TwoBitSequence<2>>(
+                output,
                 hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
     else if (str_len > 0) {
         result = analysisLoop<TwoBitSequence<1>>(
+                output,
                 hash_bytes, first_base, str_len, winx, winy, input, header, sequence
                 );
     }
@@ -513,12 +567,17 @@ int main(int argc, char* argv[]) {
         return 1; // error flag
     }
     else if (input.eof() && output.good()) {
-	cerr << "Completed. Processed " << result.num_reads << " records." << endl;
-        output << "NUM_READS\tREADS_WITH_DUP\tDUP_RATIO\n";
-        output << result.num_reads 
-            << '\t' << result.reads_with_duplicates 
-            << '\t' << result.reads_with_duplicates * 1.0 / result.num_reads
-            << endl;
+#ifdef OUTPUT_READ_ID
+        ostream& statsstream = cerr;
+#else
+        ostream& statsstream = output;
+#endif
+        statsstream << "Completed. Analysed " << result.num_reads << " records." << endl;
+        statsstream << "NUM_READS\tREADS_WITH_DUP\tDUP_RATIO\n";
+        statsstream << result.num_reads 
+                    << '\t' << result.reads_with_duplicates 
+                    << '\t' << result.reads_with_duplicates * 1.0 / result.num_reads
+                    << endl;
         return 0;
     }
     else {
@@ -527,6 +586,7 @@ int main(int argc, char* argv[]) {
         }
         else {
             cerr << "ERROR: Unexpected problem!" << endl;
+            cerr << "good=" << input.good() << ", eof=" << input.eof() << endl;
         }
         return 1;
     }
