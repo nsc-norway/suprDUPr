@@ -12,8 +12,10 @@
 #include "gzip.hpp"
 #include <boost/program_options.hpp>
 
-// This constant contains the maximum length of the sequence read, used for the
-// buffer size.
+// Fastdup duplicate detection tool
+
+// This constant contains the maximum length of each line in the input file,
+// used for the buffer size.
 #define MAX_LEN 1024
 
 using namespace std;
@@ -75,9 +77,12 @@ class InputSelector {
         }
 };
 
+// TwoBitSequence:
+// Class to hold a fixed length nucleotide sequence, in an efficient two-bit
+// encoding. It's mainly use for equality comparisons, so it has no method to
+// recover the original string.
 template <size_t N>
 class TwoBitSequence {
-    // Class to hold the sequence, in an efficient two-bit encoding.
  
 public:
     unsigned long data[N] = {};
@@ -118,7 +123,7 @@ public:
             }
             size_t jshift, nshift;
             j = 0;
-            if (i & 1 == 1)
+            if ((i & 1) == 1)
                 nshift = 4;
             else
                 nshift = 0;
@@ -133,17 +138,18 @@ public:
     }
 
     inline bool operator==(const TwoBitSequence& other) const {
-        for (int i=0; i<N; ++i) {
+        for (size_t i=0; i<N; ++i) {
             if (data[i] != other.data[i]) 
                 return false;
         }
-        for (int i=0; i<(N+1)/2; ++i) {
+        for (size_t i=0; i<(N+1)/2; ++i) {
             if (unk[i] != other.unk[i])
                 return false;
         }
         return true;
     }
 
+    // Computes a simple, fast hash of the sequence.
     inline size_t hash() const {
         // Hash ignores unk; treats N as G. As N is uncommon, it's 
         // not worth the effort.
@@ -156,20 +162,23 @@ public:
 };
 
 
+// Entry:
+// This class represents a single sequence read at a specific position 
+// inside a physical region (tile). It holds the coordinates and the 
+// sequence, and in case of the read-ID mode, it holds the read-ID 
+// (FASTQ header) string.
 template<typename VALUE>
 class Entry {
-    // This class represents a single sequence read at a specific position 
-    // on the flow cell. 
     public:
         Entry* next = nullptr;
-        VALUE value;
         short group;
         int x, y;
+        VALUE value;
 #ifdef OUTPUT_READ_ID
         string id;
 
         Entry(short group, int x, int y, const char* id, size_t idlen, const char* seq) :
-            group(group), x(x), y(y), id(id, idlen), value(seq) {
+            group(group), x(x), y(y), value(seq), id(id, idlen) {
         }
 #else
         Entry(short group, int x, int y, const char* seq) :
@@ -179,20 +188,22 @@ class Entry {
 
 };
 
+// Metrics is used to pass results from the analysisLoop function back
+// into the main program.
 class Metrics {
     // Collects totals
     public:
         bool error = false;
-        unsigned long duplicates_dedup = 0;
         unsigned long reads_with_duplicates = 0;
         unsigned long num_reads = 0;
 };
 
+/* The AnalysisHead class receives read one by one from the analysis loop,
+ * and manages the processing of rows, and groups (tiles). The enterPoint
+ * function is the critical piece of code, which checks for duplicates. */
 template<typename VALUE>
 class AnalysisHead {
 
-    /* The AnalysisHead class receives read one by one from the main program, and 
-     * manages the processing of rows, and groups (tiles). */
     ostream& outout;
 
     const size_t hash_size;
@@ -237,6 +248,7 @@ class AnalysisHead {
                 }
                 else {
 #ifdef OUTPUT_READ_ID
+                    // Code path to output the read-ID, can be enabled at compile time.
                     if (abs(entry->x - x) < winx
                         && entry->value == new_entry->value) {
                         any_duplicate_found = true;
@@ -244,7 +256,8 @@ class AnalysisHead {
                     }
 #else
                     // This is a more optimised version, which breaks out of the loop
-                    // on the first match, to work better on files with many duplicates
+                    // on the first match, to work better on files with high duplication
+                    // ratio.
                     if (any_duplicate_found == 0
                             && abs(entry->x - x) < winx
                             && entry->value == new_entry->value) {
@@ -268,26 +281,28 @@ class AnalysisHead {
         }
 };
 
+/*
+ * Function analysisLoop is called by main program to run the actual analysis.
+ *
+ * It reads the input file one record at a time, but hands off the parsed 
+ * records to an AnalysisHead object.
+ *
+ * This code is separated into a different function in order to be able to use a 
+ * type parameter (VALUE), so it can call the corresponding AnalysisHead efficiently.
+ */
 template <typename VALUE>
 Metrics analysisLoop(
         ostream& output,
-        size_t hash_bytes, int str_start, int str_len,
+        size_t hash_bytes, size_t str_start, size_t str_len,
         int winx, int winy, istream& input,
         const string& header, const string& sequence
         ) {
 
-    /*
-     * Function analysisLoop is called by main program to run the actual analysis.
-     *
-     * This is separated into a different function in order to be able to use a 
-     * type parameter (VALUE), so it can call the corresponding AnalysisHead efficiently.
-     */
 
     // Do some more work to determine the header format. In Illumina format, the 
     // x coordinate is after the fifth colon and the y coordinate after the sixth 
     // colon up to a space.
-    size_t start_to_coord_offset, start_to_y_coord_offset;
-    size_t coord_to_quality_offset = 1; // Default is \n+\n, but could be longer
+    size_t start_to_coord_offset = 0, start_to_y_coord_offset = 0;
     size_t colons = 0, end_coords = 0; // temporary variables
     size_t i;
     for (i=0; i<header.size(); ++i) {
@@ -314,7 +329,6 @@ Metrics analysisLoop(
     unsigned int x, y;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
-    size_t coord_to_seq_offset = header.size() - end_coords + 1;
 
     size_t seq_len = sequence.size();
     if (seq_len >= MAX_LEN) {
@@ -327,7 +341,6 @@ Metrics analysisLoop(
     // Read identifier prefix (before coordinates)
     char read_id[start_to_coord_offset];
     memcpy(read_id, &header[0], start_to_coord_offset);
-    int ibuf = 1; // Identifier of where to write next read ID prefix (0/1)
 
     const size_t pad_to = sizeof(unsigned long) * 4;
     const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
@@ -349,7 +362,6 @@ Metrics analysisLoop(
         m.error = true;
         return m;
     }
-    size_t interlude_len = middle_header.size() + 2;
 
     input.ignore(1 + seq_len); // Ignores quality scores and \n
 
@@ -405,8 +417,8 @@ Metrics analysisLoop(
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
                 // Use ID string up to after the y coordinate, so we null-terminate it
-                size_t id_len = ptr - headerbuf - 1;
 #ifdef OUTPUT_READ_ID
+                size_t id_len = ptr - headerbuf - 1;
             	analysisHead.enterPoint(x, y, headerbuf + 1, id_len, seq_data);
 #else
             	analysisHead.enterPoint(x, y, seq_data);
