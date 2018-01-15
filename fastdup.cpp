@@ -251,7 +251,7 @@ class AnalysisHead {
                     if (abs(entry->x - x) < winx
                         && entry->value == new_entry->value) {
                         any_duplicate_found = true;
-                        outout << entry->id <<'\t' << new_entry->id << '\n';
+                        outout << new_entry->id << '\t' << entry->id << '\n';
                     }
 #else
                     // This is a more optimised version, which breaks out of the loop
@@ -411,12 +411,12 @@ Metrics analysisLoop(
             if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
                 analysisHead.endOfGroup();
                 memcpy(read_id, headerbuf, start_to_coord_offset);
-                prev_y = 0;
+                //prev_y = 0;
             }
             else {
-                if (y < prev_y) {
-                    // TODO check sorting
-                }
+                //if (y < prev_y) {
+                //    // TODO check sorting
+                //}
             }
 
             if (num_read >= 1 + str_len + str_start) {
@@ -553,7 +553,7 @@ int main(int argc, char* argv[]) {
     if (last_base == -1) last_base = seq_len;
     size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
 
-    cerr << "Using nucleotides positions from " << first_base << " to "
+    cerr << "Using nucleotide positions from " << first_base << " to "
          << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
@@ -603,12 +603,12 @@ int main(int argc, char* argv[]) {
         return 1; // error flag
     }
     else if (input.eof() && output.good()) {
+        cerr << "Completed. Analysed " << result.num_reads << " records." << endl;
 #ifdef OUTPUT_READ_ID
         ostream& statsstream = cerr;
 #else
         ostream& statsstream = output;
 #endif
-        statsstream << "Completed. Analysed " << result.num_reads << " records." << endl;
         statsstream << "NUM_READS\tREADS_WITH_DUP\tDUP_RATIO\n";
         statsstream << result.num_reads 
                     << '\t' << result.reads_with_duplicates 
