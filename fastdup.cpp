@@ -208,9 +208,8 @@ class AnalysisHead {
     const size_t hash_size;
     const size_t mask;
     int winx, winy;
+    const bool region_sorted, unsorted;
     size_t str_len;
-
-    short group = 0;
 
     typedef Entry<VALUE> Ent;
     Ent** data = nullptr;
@@ -219,10 +218,11 @@ class AnalysisHead {
     Metrics metrics;
         
         AnalysisHead(ostream& outout, 
-                size_t hash_bytes, unsigned int winx, unsigned int winy) 
+                size_t hash_bytes, unsigned int winx, unsigned int winy, bool region_sorted,
+                bool unsorted)
             : outout(outout),
                 hash_size(hash_bytes/sizeof(Ent*)), mask(hash_size-1),
-                winx(winx), winy(winy) {
+                winx(winx), winy(winy), region_sorted(region_sorted), unsorted(unsorted) {
             data = new Ent*[hash_size];
         }
 
@@ -231,17 +231,29 @@ class AnalysisHead {
         }
 
 #ifdef OUTPUT_READ_ID
-        void enterPoint(int x, int y, const char* id, size_t idlen, const char* str) {
+        void enterPoint(int group, int x, int y, const char* id, size_t idlen, const char* str) {
             Ent* new_entry = new Ent(group,x,y,id,idlen,str);
 #else
-        void enterPoint(int x, int y, const char* str) {
+        void enterPoint(int group, int x, int y, const char* str) {
             Ent* new_entry = new Ent(group,x,y,str);
 #endif
             Ent** entry_ptr = &data[new_entry->value.hash() & mask];
             bool any_duplicate_found = false;
             while (*entry_ptr) {
                 Ent* entry = (*entry_ptr);
-                if ((y - entry->y) > winy || entry->group != group) {
+                if ((y - entry->y) > winy) {
+                    if (unsorted || region_sorted) {
+                        entry_ptr = &entry->next;
+                        continue;
+                    }
+                    *entry_ptr = entry->next;
+                    delete entry;
+                }
+                else if (entry->group != group) {
+                    if (unsorted) {
+                        entry_ptr = &entry->next;
+                        continue;
+                    }
                     *entry_ptr = entry->next;
                     delete entry;
                 }
@@ -274,11 +286,14 @@ class AnalysisHead {
             metrics.num_reads++;
             *entry_ptr = new_entry;
         }
-
-        void endOfGroup() {
-            group++;
-        }
 };
+
+// This returns a result signifying an error.
+Metrics error() {
+    Metrics m;
+    m.error = true;
+    return m;
+}
 
 /*
  * Function analysisLoop is called by main program to run the actual analysis.
@@ -293,8 +308,8 @@ template <typename VALUE>
 Metrics analysisLoop(
         ostream& output,
         size_t hash_bytes, size_t str_start, size_t str_len,
-        int winx, int winy, istream& input,
-        const string& header, const string& sequence
+        int winx, int winy, bool region_sorted, bool unsorted,
+        istream& input, const string& header, const string& sequence
         ) {
 
 
@@ -318,23 +333,24 @@ Metrics analysisLoop(
         end_coords = i;
     if (colons < 6) {
         cerr << "Illumina format x/y coordinates not detected" << endl;
-        Metrics m;
-        m.error = true;
-        return m;
+        return error();
     }
 
     // Read the x/y of the first entry in a special way, because we have already
     // read the lines into memory.
-    unsigned int x, y;
+    int x, y;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
+    // Group (region) counter. In unsorted mode, this must be different than 0, 
+    // as 0 indicates an unknown group.
+    int group = 1, unsorted_mode_group_counter = 1;
+    map<string, int> unsorted_mode_group;
+    int prev_y = 0;
 
     size_t seq_len = sequence.size();
     if (seq_len >= MAX_LEN) {
         cerr << "Sequence is too long, max supported is: " << MAX_LEN << "." << endl;
-        Metrics m;
-        m.error = true;
-        return m;
+        return error();
     }
 
     // Read identifier prefix (before coordinates)
@@ -357,23 +373,23 @@ Metrics analysisLoop(
     if (middle_header.size() == 0 || middle_header[0] != '+') {
         cerr << "The line after the sequence doesn't conform to the expected " 
             << "format." << endl;
-        Metrics m;
-        m.error = true;
-        return m;
+        return error();
     }
 
     input.ignore(1 + seq_len); // Ignores quality scores and \n
 
-    AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy);
+    AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy, region_sorted, unsorted);
 
     cerr << "Started reading FASTQ file..." << endl;
 
     if (input) {
 #ifdef OUTPUT_READ_ID
-        analysisHead.enterPoint(x, y, header.c_str() + 1, end_coords, seq_data);
+        analysisHead.enterPoint(group, x, y, header.c_str() + 1, end_coords, seq_data);
 #else
-        analysisHead.enterPoint(x, y, seq_data);
+        analysisHead.enterPoint(group, x, y, seq_data);
 #endif
+        // This is used only for unordered mode
+        unsorted_mode_group[string(header, start_to_coord_offset)] = group;
         while (input) { // Input loop
             input.getline(headerbuf, MAX_LEN);
 
@@ -381,21 +397,17 @@ Metrics analysisLoop(
 
             // Read the coordinates, then ignore the rest of the header line
             char* ptr;
-            x = (unsigned int)strtoul(headerbuf+start_to_coord_offset, &ptr, 10);
+            x = strtol(headerbuf+start_to_coord_offset, &ptr, 10);
             if (*ptr != ':') {
-                cerr << "Invalid file format detected. All reads must be of the same length, "
+                cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
                      << "and the header must be the standard Illumina header." << endl;
-                Metrics m;
-                m.error = true;
-                return m;
+                return error();
             }
-            y = (unsigned int)strtoul(ptr+1, &ptr, 10);
+            y = strtol(ptr+1, &ptr, 10);
             if (*ptr != ' ' && *ptr != '\0') {
-                cerr << "Invalid file format detected. All reads must be of the same length, "
+                cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
                      << "and the header must be the standard Illumina header." << endl;
-                Metrics m;
-                m.error = true;
-                return m;
+                return error();
             }
 
             // Read sequence string
@@ -407,26 +419,39 @@ Metrics analysisLoop(
             input.getline(dummybuf, MAX_LEN);
             input.getline(dummybuf, MAX_LEN);
 
-            // If header prefix doesn't match the last one, signal "end of group" (tile)
-            if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
-                analysisHead.endOfGroup();
-                memcpy(read_id, headerbuf, start_to_coord_offset);
-                //prev_y = 0;
+            if (!unsorted) {
+                // If header prefix doesn't match the last one, signal "end of group" (tile)
+                if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
+                    group++;
+                    memcpy(read_id, headerbuf, start_to_coord_offset);
+                    prev_y = 0;
+                }
+                else if (!region_sorted && y < prev_y) {
+                        cerr << "ERROR: The file is not sorted according to y-coordinate. See "
+                             << "options --region-sorted or --unsorted." << endl;
+                        return error();
+                }
             }
             else {
-                //if (y < prev_y) {
-                //    // TODO check sorting
-                //}
+                const string id_str(headerbuf, start_to_coord_offset);
+                map<string, int>::iterator location = unsorted_mode_group.find(id_str);
+                if (location == unsorted_mode_group.end()) {
+                    unsorted_mode_group[id_str] = group = ++unsorted_mode_group_counter; 
+                }
+                else {
+                    group = location->second;
+                }
             }
+            prev_y = y;
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
                 // Use ID string up to after the y coordinate, so we null-terminate it
 #ifdef OUTPUT_READ_ID
                 size_t id_len = ptr - headerbuf - 1;
-            	analysisHead.enterPoint(x, y, headerbuf + 1, id_len, seq_data);
+                analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, seq_data);
 #else
-            	analysisHead.enterPoint(x, y, seq_data);
+                analysisHead.enterPoint(group, x, y, seq_data);
 #endif
             }
 
@@ -452,7 +477,7 @@ int main(int argc, char* argv[]) {
     unsigned int winx, winy;
     int first_base, last_base = -1;
     size_t hash_bytes;
-    bool quasi_sorted, unsorted;
+    bool region_sorted, unsorted;
 
     po::options_description visible("Allowed options");
     visible.add_options()
@@ -464,11 +489,12 @@ int main(int argc, char* argv[]) {
             "First nucleotide position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
             "Last nucleotide position in reads to consider (use -1 for all bases)")
-        ("quasi-sorted,q", po::bool_switch(&quasi_sorted),
+        ("region-sorted,r", po::bool_switch(&region_sorted),
             "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
             "within the region.")
         ("unsorted,u", po::bool_switch(&unsorted),
-            "Process unsorted file (a large hash-size is recommended, see --hash-size).")
+            "Process unsorted file (a large hash-size is recommended, see --hash-size). This "
+            "mode requires all data to be stored in memory, and it is not well optimised.")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
             "Hash table size (bytes), must be a power of 2. (increase if winy>2500).")
         ("help,h", "Show this help message")
@@ -566,31 +592,36 @@ int main(int argc, char* argv[]) {
     else if (str_len > 128) {
         result = analysisLoop<TwoBitSequence<5>>(
                 output,
-                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
+                input, header, sequence
                 );
     }
     else if (str_len > 96) {
         result = analysisLoop<TwoBitSequence<4>>(
                 output,
-                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
+                input, header, sequence
                 );
     }
     else if (str_len > 64) {
         result = analysisLoop<TwoBitSequence<3>>(
                 output,
-                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
+                input, header, sequence
                 );
     }
     else if (str_len > 32) {
         result = analysisLoop<TwoBitSequence<2>>(
                 output,
-                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
+                input, header, sequence
                 );
     }
     else if (str_len > 0) {
         result = analysisLoop<TwoBitSequence<1>>(
                 output,
-                hash_bytes, first_base, str_len, winx, winy, input, header, sequence
+                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
+                input, header, sequence
                 );
     }
     else {
