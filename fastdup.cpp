@@ -378,11 +378,6 @@ Metrics analysisLoop(
             input.getline(headerbuf, MAX_LEN);
 
             if (!input) break;
-            // If it doesn't match the last one, signal "end of group" (tile)
-            if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
-                analysisHead.endOfGroup();
-                memcpy(read_id, headerbuf, start_to_coord_offset);
-            }
 
             // Read the coordinates, then ignore the rest of the header line
             char* ptr;
@@ -412,6 +407,17 @@ Metrics analysisLoop(
             input.getline(dummybuf, MAX_LEN);
             input.getline(dummybuf, MAX_LEN);
 
+            // If header prefix doesn't match the last one, signal "end of group" (tile)
+            if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
+                analysisHead.endOfGroup();
+                memcpy(read_id, headerbuf, start_to_coord_offset);
+                prev_y = 0;
+            }
+            else {
+                if (y < prev_y) {
+                    // TODO check sorting
+                }
+            }
 
             if (num_read >= 1 + str_len + str_start) {
                 memcpy(seq_data, linebuf + str_start, str_len);
@@ -446,6 +452,7 @@ int main(int argc, char* argv[]) {
     unsigned int winx, winy;
     int first_base, last_base = -1;
     size_t hash_bytes;
+    bool quasi_sorted, unsorted;
 
     po::options_description visible("Allowed options");
     visible.add_options()
@@ -457,6 +464,11 @@ int main(int argc, char* argv[]) {
             "First nucleotide position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
             "Last nucleotide position in reads to consider (use -1 for all bases)")
+        ("quasi-sorted,q", po::bool_switch(&quasi_sorted),
+            "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
+            "within the region.")
+        ("unsorted,u", po::bool_switch(&unsorted),
+            "Process unsorted file (a large hash-size is recommended, see --hash-size).")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
             "Hash table size (bytes), must be a power of 2. (increase if winy>2500).")
         ("help,h", "Show this help message")
