@@ -488,7 +488,7 @@ int main(int argc, char* argv[]) {
         ("start,s", po::value<int>(&first_base)->default_value(10),
             "First nucleotide position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
-            "Last nucleotide position in reads to consider (use -1 for all bases)")
+            "Last nucleotide position in reads to consider (use -1 for the end of the read)")
         ("region-sorted,r", po::bool_switch(&region_sorted),
             "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
             "within the region.")
@@ -523,7 +523,7 @@ int main(int argc, char* argv[]) {
         if (vm.count("help") > 0) {
             printUsage(argv[0]);
             cerr << visible << '\n';
-            cerr << "  Specify - for input_file to read from stdin." << endl;
+            cerr << "  Specify - for input_file to read from standard input.\n" << endl;
             return 0;
         }
         else if (vm.count("input-file") != 1) {
