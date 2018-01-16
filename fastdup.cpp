@@ -84,11 +84,25 @@ template <size_t N>
 class TwoBitSequence {
  
 public:
+    // SequenceBuffer type -- Used to read data. The buffer before and after data
+    // are used for parts of the sequence we are not interested in. The call to read
+    // input is made so that the substring used for matching ends up directly in the
+    // data array. The char_data member is used to get a pointer to the data array, but
+    // as a char.
+    struct SequenceBuffer {
+        char buffer[MAX_LEN];
+        union {
+            unsigned long data[N*4];
+            char char_data;
+        };
+        char buffer2[MAX_LEN];
+    };
+
     unsigned long data[N] = {};
     // Have half the number of unk's for N bases, but round up
     unsigned long unk[(N+1)/2] = {};
     
-    inline TwoBitSequence(const char* seq) {
+    inline TwoBitSequence(const unsigned long* seq) {
         /* Conversion of ASCII string to 2-bit codes + unknown (N) flag:
          *        vv
          *  A 1000001
@@ -113,6 +127,7 @@ public:
          *
          * The handling of N was added later.
          */
+        //const unsigned long* blocks = (const unsigned long*) __builtin_assume_aligned(seq, 8);
         const unsigned long* blocks = (const unsigned long*) seq;
         for (size_t i=0; i<N; ++i) {
             data[i] = (blocks[i*4] & (0x0606060606060606ul)) >> 1;
@@ -176,11 +191,11 @@ class Entry {
 #ifdef OUTPUT_READ_ID
         string id;
 
-        Entry(short group, int x, int y, const char* id, size_t idlen, const char* seq) :
+        Entry(short group, int x, int y, const char* id, size_t idlen, const unsigned long* seq) :
             group(group), x(x), y(y), value(seq), id(id, idlen) {
         }
 #else
-        Entry(short group, int x, int y, const char* seq) :
+        Entry(short group, int x, int y, const unsigned long* seq) :
             group(group), x(x), y(y), value(seq) {
         }
 #endif
@@ -231,11 +246,11 @@ class AnalysisHead {
         }
 
 #ifdef OUTPUT_READ_ID
-        void enterPoint(int group, int x, int y, const char* id, size_t idlen, const char* str) {
-            Ent* new_entry = new Ent(group,x,y,id,idlen,str);
+        void enterPoint(int group, int x, int y, const char* id, size_t idlen, const unsigned long* seq) {
+            Ent* new_entry = new Ent(group,x,y,id,idlen,seq);
 #else
-        void enterPoint(int group, int x, int y, const char* str) {
-            Ent* new_entry = new Ent(group,x,y,str);
+        void enterPoint(int group, int x, int y, const unsigned long* seq) {
+            Ent* new_entry = new Ent(group,x,y,seq);
 #endif
             Ent** entry_ptr = &data[new_entry->value.hash() & mask];
             bool any_duplicate_found = false;
@@ -357,13 +372,20 @@ Metrics analysisLoop(
     char read_id[start_to_coord_offset];
     memcpy(read_id, &header[0], start_to_coord_offset);
 
-    const size_t pad_to = sizeof(unsigned long) * 4;
-    const size_t buf_size = ((str_len + 1) * pad_to - 1) / pad_to; // Round up (pad zero)
-    char* seq_data = new char[buf_size];
-    char* linebuf = new char[MAX_LEN];
+    // Sequence buffer
+    typename VALUE::SequenceBuffer sequence_buf;
+    memset(&sequence_buf, 0, sizeof(sequence_buf));
+    // Pointer to read sequence data
+    char* linebuf = &sequence_buf.char_data - str_start;
     char* headerbuf = new char[MAX_LEN];
     char* dummybuf = new char[MAX_LEN];
-    sequence.copy(seq_data, str_len, str_start);
+    sequence.copy(&sequence_buf.char_data, str_len, str_start);
+
+    // Need to zero the rest of the string after reading, if it does not fit exactly
+    // into the data array. The unused part of data must be zero for TwoBitSequence to
+    // work.
+    char* zero_start = (&sequence_buf.char_data) + str_len;
+    size_t zero_num = sizeof(sequence_buf.data) - str_len;
 
     // We also accept a header between sequence and quality, doesn't need to be just
     // "+". For example, some files from SRA have this.
@@ -384,9 +406,9 @@ Metrics analysisLoop(
 
     if (input) {
 #ifdef OUTPUT_READ_ID
-        analysisHead.enterPoint(group, x, y, header.c_str() + 1, end_coords, seq_data);
+        analysisHead.enterPoint(group, x, y, header.c_str() + 1, end_coords, sequence_buf.data);
 #else
-        analysisHead.enterPoint(group, x, y, seq_data);
+        analysisHead.enterPoint(group, x, y, sequence_buf.data);
 #endif
         // This is used only for unordered mode
         unsorted_mode_group[string(header, start_to_coord_offset)] = group;
@@ -445,13 +467,13 @@ Metrics analysisLoop(
             prev_y = y;
 
             if (num_read >= 1 + str_len + str_start) {
-                memcpy(seq_data, linebuf + str_start, str_len);
+                for (int bp=0; bp<zero_num; ++bp) zero_start[bp] = 0;
                 // Use ID string up to after the y coordinate, so we null-terminate it
 #ifdef OUTPUT_READ_ID
                 size_t id_len = ptr - headerbuf - 1;
-                analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, seq_data);
+                analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, sequence_buf.data);
 #else
-                analysisHead.enterPoint(group, x, y, seq_data);
+                analysisHead.enterPoint(group, x, y, sequence_buf.data);
 #endif
             }
 
