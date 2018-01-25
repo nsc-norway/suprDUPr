@@ -9,10 +9,14 @@
 
 #include <boost/iostreams/filtering_stream.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
-//#include "gzip.hpp"
 #include <boost/program_options.hpp>
 
-// Fastdup duplicate detection tool
+/*
+ * fastdup - the duplicate detection tool
+ *
+ * 
+ *
+ */
 
 // This constant contains the maximum length of each line in the input file,
 // used for the buffer size.
@@ -21,60 +25,6 @@
 using namespace std;
 namespace po = boost::program_options;
 
-class InputSelector {
-    // InputSelector class sets up the input stream from STDIN, or opens a file,
-    // and detects whether the input is GZIP compressed.
-    private:
-        istream* raw_input, *input_ptr;
-        unique_ptr<istream> filtered_input;
-        ifstream file_input;
-        boost::iostreams::filtering_istream in;
-
-    public:
-        istream* input;
-        bool valid;
-
-        InputSelector(const string& filename) {
-            // Disable sync with printf, etc.
-            ios_base::sync_with_stdio(false);
-            // Use a simple locale, for speed
-            setlocale(LC_ALL,"C");
-            if (filename == "-") {
-                raw_input = &cin;
-                // Prevents flushing cout when reading from cin
-                cin.tie(nullptr);
-            }
-            else {
-                file_input.open(filename, ios_base::in | ios_base::binary);
-                if (file_input.fail()) {
-                    valid = false;
-                    return;
-                }
-                raw_input = &file_input;
-            }
-            
-            uint8_t byte1, byte2;
-
-            (*raw_input) >> byte1 >> byte2;
-
-            if ( !raw_input->good() ) {
-                valid = false;
-                return;
-            }
-            raw_input->putback(byte2);
-            raw_input->putback(byte1);
-
-            if (byte1 == 0x1f && byte2 == 0x8b) {
-                in.push(boost::iostreams::gzip_decompressor());
-                in.push(*raw_input);
-                input = &in;
-            }
-            else {
-                input = raw_input;
-            }
-            valid = true;
-        }
-};
 
 // TwoBitSequence:
 // Class to hold a fixed length nucleotide sequence, in an efficient two-bit
@@ -84,11 +34,10 @@ template <size_t N>
 class TwoBitSequence {
  
 public:
-    // SequenceBuffer type -- Used to read data. The buffer before and after data
-    // are used for parts of the sequence we are not interested in. The call to read
-    // input is made so that the substring used for matching ends up directly in the
-    // data array. The char_data member is used to get a pointer to the data array, but
-    // as a char.
+    // SequenceBuffer type -- Used as a buffer for data input.
+    // The buffer before and after the member data are used for parts of the
+    // sequence we are not interested in. The char_data member is used to get
+    // a pointer to the data array, but as a character type.
     struct SequenceBuffer {
         char buffer[MAX_LEN];
         union {
@@ -102,7 +51,7 @@ public:
     // Have half the number of unk's for N bases, but round up
     unsigned long unk[(N+1)/2] = {};
     
-    inline TwoBitSequence(const unsigned long* seq) {
+    inline TwoBitSequence(const unsigned long* blocks) {
         /* Conversion of ASCII string to 2-bit codes + unknown (N) flag:
          *        vv
          *  A 1000001
@@ -115,9 +64,10 @@ public:
          * then shift them as appropriate.
          *
          * The 2-bit codes aren't stored in order, making it a bit more efficient
-         * to read them in 8-byte chunks. One can fit 4 2-bit bases into the space
-         * of a single ASCII character (byte). The bases are stored in an unique
-         * order (order is irrelevant as long as equality is preserved):
+         * to read them in 8-byte chunks. One can fit 4 2-bit nucleotides into the
+         * space of a single ASCII character (byte). The nucleotides are stored in
+         * an unique, but non-obvious order (order is irrelevant as long as equality
+         * is preserved):
          * 1,9,17,25,2,10,18,26,3,11,19,27,.....,8,16,24,32
          *
          * The sequence length is not needed. It is the responsibility of the 
@@ -125,16 +75,20 @@ public:
          * is seq_len/32 rounded up. Also, the buffer passed to the constructor
          * must be at least N*32 bytes long, zero padded if necessary.
          *
-         * The handling of N was added later.
+         * The handling of N characters in addition to ACGT was added later.
          */
         //const unsigned long* blocks = (const unsigned long*) __builtin_assume_aligned(seq, 8);
-        const unsigned long* blocks = (const unsigned long*) seq;
         for (size_t i=0; i<N; ++i) {
+            // Read four blocks of ASCII data into the i-th 64-bit int
             data[i] = (blocks[i*4] & (0x0606060606060606ul)) >> 1;
             size_t j;
             for (j=0; j<3; ++j) {
                 data[i] |= (blocks[i*4+j+1] & (0x0606060606060606ul)) << (j*2+1);
             }
+
+            // Dealing with N characters: every two iterations of this loop share
+            // one entry in the unk array. This adds a different offset for even
+            // and odd iterations.
             size_t jshift, nshift;
             j = 0;
             if ((i & 1) == 1)
@@ -142,6 +96,7 @@ public:
             else
                 nshift = 0;
             jshift = nshift;
+            // Load four blocks of Ns into the current unk entry
             for (; jshift<3; ++jshift) {
                 unk[i/2] |= (blocks[i*4+(j++)] & (0x0808080808080808ul)) >> (3-jshift);
             }
@@ -351,13 +306,16 @@ Metrics analysisLoop(
         return error();
     }
 
-    // Read the x/y of the first entry in a special way, because we have already
+    // Parse the x/y of the first entry in a special way, because we have already
     // read the lines into memory.
     int x, y;
     x = atoi(header.c_str() + start_to_coord_offset);
     y = atoi(header.c_str() + start_to_y_coord_offset);
-    // Group (region) counter. In unsorted mode, this must be different than 0, 
-    // as 0 indicates an unknown group.
+
+    // Group (region) counter, incremented every time the prefix of the read
+    // identifier, the string before the x and y coordinates, changes. In
+    // unsorted mode, this must be different than 0, as 0 indicates an unknown
+    // group.
     int group = 1, unsorted_mode_group_counter = 1;
     map<string, int> unsorted_mode_group;
     int prev_y = 0;
@@ -486,10 +444,67 @@ Metrics analysisLoop(
 }
 
 
+// -- Main program and housekeeping code below --
+// Input paramters, opening I/O streams, etc.
+
 void printUsage(const char* program_name) {
     cerr << "usage: " << program_name << " [options] input_file [output_file] \n";
 }
 
+class InputSelector {
+    // InputSelector class sets up the input stream from STDIN, or opens a file,
+    // and detects whether the input is GZIP compressed.
+    private:
+        istream* raw_input, *input_ptr;
+        unique_ptr<istream> filtered_input;
+        ifstream file_input;
+        boost::iostreams::filtering_istream in;
+
+    public:
+        istream* input;
+        bool valid;
+
+        InputSelector(const string& filename) {
+            // Disable sync with printf, etc.
+            ios_base::sync_with_stdio(false);
+            // Use a simple locale, for speed
+            setlocale(LC_ALL,"C");
+            if (filename == "-") {
+                raw_input = &cin;
+                // Prevents flushing cout when reading from cin
+                cin.tie(nullptr);
+            }
+            else {
+                file_input.open(filename, ios_base::in | ios_base::binary);
+                if (file_input.fail()) {
+                    valid = false;
+                    return;
+                }
+                raw_input = &file_input;
+            }
+            
+            uint8_t byte1, byte2;
+
+            (*raw_input) >> byte1 >> byte2;
+
+            if ( !raw_input->good() ) {
+                valid = false;
+                return;
+            }
+            raw_input->putback(byte2);
+            raw_input->putback(byte1);
+
+            if (byte1 == 0x1f && byte2 == 0x8b) {
+                in.push(boost::iostreams::gzip_decompressor());
+                in.push(*raw_input);
+                input = &in;
+            }
+            else {
+                input = raw_input;
+            }
+            valid = true;
+        }
+};
 
 int main(int argc, char* argv[]) {
 
@@ -605,6 +620,8 @@ int main(int argc, char* argv[]) {
          << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
+    // All these versions of the analysis loop are compiled as separate 
+    // function, but only one is used for a given set of input parameters.
     Metrics result;
     if (str_len > 160) {
         cerr << "ERROR: Sorry, strings longer than 160 bytes are not supported "
