@@ -1,24 +1,22 @@
-## fastdup
+# fastdup
 
 Tool for identifying duplicates reads in close physical proximity on patterned Illumina flow cells.
 
-The tool is designed to analyse FASTQ files with un-trimmed reads, in the format output by BCL conversion software (e.g. bcl2fastq). 
+The tool is designed to analyse FASTQ files with un-trimmed reads, in the format output by BCL
+conversion software (e.g. bcl2fastq). 
 
-# Installation
+## Installation
 
-The tool requires a compiler compatible C++11 
+A compiler compatible with C++11 is required to build the program. Furthermore, it relies on the
+following two Boost libraries:
 
+  * program-options
+  * iostreams (with gzip support)
 
-# Alternative programs
+The program can be built by entering the source directory and issuing the command:
 
-The programs ''duplicate-finder.subrange.cpp'' and ''fastdup.read_id.cpp'' are used to investigate the subtleties of
-identified duplicates in fastq files. They are not intended for production use. Both programs print the "read-id" 
-of each duplicate, which is is the first part of the fastq header. For any group of equal sequences found, all of 
-the sequences are printed (this is different from the MarkDuplicates tool in Picard Tools, which keeps one "primary"
-read as non-duplicate, and marks others as duplicate).
+    make
 
-  * fastdup.read_id: Works like the standard fastdup tools, but outputs the read-ID.
-  * duplicate-finder.subrange: Works like fastdup.read_id, but uses the Levenshtein distance to compare sequences,
-			instead of requiring an exact match. Takes most options at compile time (again, it's not
-			production ready). At least an order of magnitude slower, but SMP-enabled.
+This will produce binaries `fastdup` and `fastdup.read_id` in the current directory. Run the binaries to get
+a list of options.
 
