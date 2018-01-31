@@ -9,8 +9,8 @@ x_lim_tot = (1100, 33000)
 y_lim_tot = (1000, 50000)
 
 # Max distance along the axis (so, the window size is about twice the *_lim_dist)
-x_lim_dist = (2500, 2500)
-y_lim_dist = (2500, 2500)
+x_lim_dist = 2500
+y_lim_dist = 2500
 n_tiles = 112
 
 
@@ -28,8 +28,15 @@ ys = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
 tiles = numpy.random.random_integers(1, n_tiles, (nseq_reads))
 
 
-# ** Global duplication ratio: count number of duplicates for each unique sequence, regardless of position**
-# First get unique sequences (numbers) and the count of each. Only the count is needed for the global duplication ratio.
+# ** Global duplication ratio: count number of duplicates for each unique sequence, regardless
+# of position**
+
+# First get unique sequences (numbers) and the count of each. Only the count is needed for the
+# global duplication ratio.
+
+# We also request return_inverse, which returns an array which is as long as reads, which 
+# contains an index into unique_seqs (array of uniques) for each element in reads. The 
+# variable indexes is used in the next section (local duplicates).
 unique_seqs, indexes, counts = numpy.unique(reads, return_inverse=True, return_counts=True)
 
 num_global_duplicates = (counts - 1).sum()
@@ -41,12 +48,26 @@ print("Global duplication rate: {0:.1f} %".format(num_global_duplicates * 100.0 
 
 local_duplicate_counter = 0
 
-for i in range(len(unique_seqs)):
-    indexes = numpy.argwhere(indexes == i)
-    xs, ys, tiles = [], [], []
-    for j, cand in enumerate(indexes):
-        pass
+# Looping over all unique simulated sequences. We only need their index into the
+# unique_seqs array and their count.
+for i, count in ((i, count) for i, count in enumerate(counts) if count != 1):
+    # The positions of all duplicates of this read in the arrays reads, xs, ys, tiles
+    dup_indexes = numpy.argwhere(indexes == i)
 
+    # Create a matrix with columns tile, y, x, rows for each of the duplicates
+    # in this group of sequences
+    dup_coords = numpy.concatenate(
+        (tiles[dup_indexes],xs[dup_indexes],ys[dup_indexes]),
+        axis=1
+        )
+
+    for j in range(1, count):
+        if numpy.any(
+            (dup_coords[j,0] == dup_coords[0:j,0]) &
+            (numpy.fabs(dup_coords[j,1] - dup_coords[0:j,1]) < y_lim_dist) &
+            (numpy.fabs(dup_coords[j,2] - dup_coords[0:j,2]) < x_lim_dist)
+            ):
+            local_duplicate_counter += 1
 
 print("Local duplication rate: {0:.1f} %".format(local_duplicate_counter * 100.0 / nseq_reads))
 
