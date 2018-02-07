@@ -1,6 +1,7 @@
 # Toy model for determining the relationship between local and global duplicates
 
 import numpy
+import multiprocessing
 
 print("-- Duplicate count toy model --")
 
@@ -24,21 +25,17 @@ print("  x: ", x_lim_dist)
 print("  y: ", x_lim_dist)
 print("")
 
-
-# Simulate PCR duplicates -- all reads generated from a limited space of original sequences
-# nseq_orig sequences amplified up to nseq_reads. The sequences are just represented as 
-# integers.
-nseq_orig = int(900)
-nseq_reads = int(1e3)
-print("Number of unique fragments: ", nseq_orig)
-print("Number of reads:            ", nseq_reads)
-print("")
-
 # Generate nseq_reads by sampling randomly from the space of [0,nseq_orig].
-reads = numpy.random.random_integers(1, nseq_orig, (nseq_reads))
-xs = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
-ys = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
-tiles = numpy.random.random_integers(1, n_tiles, (nseq_reads))
+def generate_reads(nseq_orig, nseq_reads):
+    # Simulate that we include first nseq_orig reads, representing the original library
+    # that undergoes PCR
+    #reads = numpy.arange(min(nseq_reads, nseq_orig)) 
+    # Then add on duplicates if we require more reads
+    reads = numpy.random.random_integers(1, nseq_orig, nseq_reads)
+    xs = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
+    ys = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
+    tiles = numpy.random.random_integers(1, n_tiles, (nseq_reads))
+    return reads, xs, ys, tiles
 
 
 # ** Function to compute the duplication ratios, global and local **
@@ -86,11 +83,15 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
     return num_global_duplicates, local_duplicate_counter
 
-num_global_duplicates, num_local_duplicates = get_duplicate_counts(
-            reads, xs, ys, tiles, x_lim_dist, y_lim_dist
-        )
+total_reads = 10000
+def analyse(library_size):
+    reads, xs, ys, tiles = generate_reads(library_size, total_reads)
+    return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
 
-print("Global duplication rate: {0:.1f} %".format(num_global_duplicates * 100.0 / nseq_reads))
-print("Local duplication rate: {0:.1f} %".format(num_local_duplicates * 100.0 / nseq_reads))
-print("")
+pool = multiprocessing.Pool()
+n_origs = [1, 10, 20, 50] + list(range(100, 8000, 100)) + list(range(8000, 20000, 500))
+global_local = pool.map(analyse, n_origs)
+for o, (g, l) in zip(n_origs, global_local):
+    print(o, g / total_reads, l / total_reads)
+
 
