@@ -3,6 +3,8 @@
 import numpy
 import multiprocessing
 
+pool = multiprocessing.Pool()
+
 print("-- Duplicate count toy model --")
 
 # Area parameters
@@ -57,7 +59,6 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
     # ** Local duplication ratio **
     # Count the number of reads within a threshold distance, and in the same tile
-
     local_duplicate_counter = 0
 
     # Looping over all unique simulated sequences. We only need their index into the
@@ -68,7 +69,7 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
         # Create a matrix with columns tile, y, x, rows for each of the duplicates
         # in this group of sequences
-        dup_coords = numpy.concatenate(
+        dup_coords = numpy.stack(
             (tiles[dup_indexes],xs[dup_indexes],ys[dup_indexes]),
             axis=1
             )
@@ -83,15 +84,35 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
     return num_global_duplicates, local_duplicate_counter
 
-total_reads = 10000
+
+total_reads = 1000000
+
+# Independent analysis: determine the ratio of reads within search window, to
+# the total number of reads. This is approximately the ratio of areas. It is
+# also affected by reads on the edge of the tile, which don't have a full 
+# search area.
+reads, xs, ys, tiles = generate_reads(10, total_reads) 
+coords = numpy.stack((tiles, ys, xs), axis=1)
+NTEST = 1000
+def eval_in_range(tyx):
+    tile, y, x = tyx
+    return numpy.sum(
+                (coords[:,0] == tile) &
+                (numpy.fabs(coords[:,1] - y) < y_lim_dist) &
+                (numpy.fabs(coords[:,2] - x) < x_lim_dist)
+                )
+
+print("Computing the search window ratio using", NTEST, "samples")
+num_in = pool.map(eval_in_range, [tuple(c) for c in coords[0:NTEST]])
+print("In range percentage:", sum(num_in) * 100.0/ (len(coords) * NTEST), "%")
+
 def analyse(library_size):
     reads, xs, ys, tiles = generate_reads(library_size, total_reads)
     return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
 
-pool = multiprocessing.Pool()
-n_origs = [1, 10, 20, 50] + list(range(100, 8000, 100)) + list(range(8000, 20000, 500))
+n_origs = [1, 2, 3, 4, 5, 10, 20, 50] + list(range(100, 8000, 100)) + list(range(8000, 20000, 500))
 global_local = pool.map(analyse, n_origs)
 for o, (g, l) in zip(n_origs, global_local):
-    print(o, g / total_reads, l / total_reads)
+    print(o / total_reads, g / total_reads, l / total_reads)
 
 
