@@ -1,31 +1,16 @@
 # Toy model for determining the relationship between local and global duplicates
 
 import numpy
-import multiprocessing
-
-pool = multiprocessing.Pool()
-
-print("-- Duplicate count toy model --")
 
 # Area parameters
 x_lim_tot = (1100, 33000)
 y_lim_tot = (1000, 50000)
 n_tiles = 112
 
-print("")
-print("Coordinate ranges:")
-print("  x: ", x_lim_tot)
-print("  y: ", y_lim_tot)
-print("Number of tiles:", n_tiles)
-print("")
-
 # Max distance along the axis (so, the window size is about twice the *_lim_dist)
 x_lim_dist = 2500
 y_lim_dist = 2500
-print("Distance thresholds for local duplicates:")
-print("  x: ", x_lim_dist)
-print("  y: ", x_lim_dist)
-print("")
+
 
 # Generate nseq_reads by sampling randomly from the space of [0,nseq_orig].
 def generate_reads(nseq_orig, nseq_reads):
@@ -87,32 +72,23 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
 total_reads = 1000000
 
-# Independent analysis: determine the ratio of reads within search window, to
-# the total number of reads. This is approximately the ratio of areas. It is
-# also affected by reads on the edge of the tile, which don't have a full 
-# search area.
+# Code for analysis of window size
 reads, xs, ys, tiles = generate_reads(10, total_reads) 
 coords = numpy.stack((tiles, ys, xs), axis=1)
-NTEST = 1000
-def eval_in_range(tyx):
-    tile, y, x = tyx
+
+def eval_in_range(ctyx):
+    tile, y, x = ctyx
     return numpy.sum(
                 (coords[:,0] == tile) &
                 (numpy.fabs(coords[:,1] - y) < y_lim_dist) &
                 (numpy.fabs(coords[:,2] - x) < x_lim_dist)
                 )
 
-print("Computing the search window ratio using", NTEST, "samples")
-num_in = pool.map(eval_in_range, [tuple(c) for c in coords[0:NTEST]])
-print("In range percentage:", sum(num_in) * 100.0/ (len(coords) * NTEST), "%")
-
+# Code for main analysis
 def analyse(library_size):
     reads, xs, ys, tiles = generate_reads(library_size, total_reads)
     return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
 
-n_origs = [1, 2, 3, 4, 5, 10, 20, 50] + list(range(100, 8000, 100)) + list(range(8000, 20000, 500))
-global_local = pool.map(analyse, n_origs)
-for o, (g, l) in zip(n_origs, global_local):
-    print(o / total_reads, g / total_reads, l / total_reads)
+
 
 
