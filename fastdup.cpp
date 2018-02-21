@@ -14,8 +14,13 @@
 /*
  * fastdup - the duplicate detection tool
  *
- * 
+ * This source file contains the entire fastdup program. The main function
+ * is located at the bottom of the file.
  *
+ * The code can be built in two different ways, depending on the value 
+ * of the preprocessor macro named OUTPUT_READ_ID. If this macro is set 
+ * to true, the program is modified to output read-identifier strings instead
+ * of just counting.
  */
 
 // This constant contains the maximum length of each line in the input file,

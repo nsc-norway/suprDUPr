@@ -2,43 +2,27 @@
 
 import numpy
 
-print("-- Duplicate count toy model --")
-
 # Area parameters
 x_lim_tot = (1100, 33000)
 y_lim_tot = (1000, 50000)
 n_tiles = 112
 
-print("")
-print("Coordinate ranges:")
-print("  x: ", x_lim_tot)
-print("  y: ", y_lim_tot)
-print("Number of tiles:", n_tiles)
-print("")
-
 # Max distance along the axis (so, the window size is about twice the *_lim_dist)
 x_lim_dist = 2500
 y_lim_dist = 2500
-print("Distance thresholds for local duplicates:")
-print("  x: ", x_lim_dist)
-print("  y: ", x_lim_dist)
-print("")
 
-
-# Simulate PCR duplicates -- all reads generated from a limited space of original sequences
-# nseq_orig sequences amplified up to nseq_reads. The sequences are just represented as 
-# integers.
-nseq_orig = int(900)
-nseq_reads = int(1e3)
-print("Number of unique fragments: ", nseq_orig)
-print("Number of reads:            ", nseq_reads)
-print("")
 
 # Generate nseq_reads by sampling randomly from the space of [0,nseq_orig].
-reads = numpy.random.random_integers(1, nseq_orig, (nseq_reads))
-xs = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
-ys = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
-tiles = numpy.random.random_integers(1, n_tiles, (nseq_reads))
+def generate_reads(nseq_orig, nseq_reads):
+    # Simulate that we include first nseq_orig reads, representing the original library
+    # that undergoes PCR
+    #reads = numpy.arange(min(nseq_reads, nseq_orig)) 
+    # Then add on duplicates if we require more reads
+    reads = numpy.random.random_integers(1, nseq_orig, nseq_reads)
+    xs = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
+    ys = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
+    tiles = numpy.random.random_integers(1, n_tiles, (nseq_reads))
+    return reads, xs, ys, tiles
 
 
 # ** Function to compute the duplication ratios, global and local **
@@ -60,7 +44,6 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
     # ** Local duplication ratio **
     # Count the number of reads within a threshold distance, and in the same tile
-
     local_duplicate_counter = 0
 
     # Looping over all unique simulated sequences. We only need their index into the
@@ -71,7 +54,7 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
         # Create a matrix with columns tile, y, x, rows for each of the duplicates
         # in this group of sequences
-        dup_coords = numpy.concatenate(
+        dup_coords = numpy.stack(
             (tiles[dup_indexes],xs[dup_indexes],ys[dup_indexes]),
             axis=1
             )
@@ -86,11 +69,26 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
     return num_global_duplicates, local_duplicate_counter
 
-num_global_duplicates, num_local_duplicates = get_duplicate_counts(
-            reads, xs, ys, tiles, x_lim_dist, y_lim_dist
-        )
 
-print("Global duplication rate: {0:.1f} %".format(num_global_duplicates * 100.0 / nseq_reads))
-print("Local duplication rate: {0:.1f} %".format(num_local_duplicates * 100.0 / nseq_reads))
-print("")
+total_reads = 1000000
+
+# Code for analysis of window size
+reads, xs, ys, tiles = generate_reads(10, total_reads) 
+coords = numpy.stack((tiles, ys, xs), axis=1)
+
+def eval_in_range(ctyx):
+    tile, y, x = ctyx
+    return numpy.sum(
+                (coords[:,0] == tile) &
+                (numpy.fabs(coords[:,1] - y) < y_lim_dist) &
+                (numpy.fabs(coords[:,2] - x) < x_lim_dist)
+                )
+
+# Code for main analysis
+def analyse(library_size):
+    reads, xs, ys, tiles = generate_reads(library_size, total_reads)
+    return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
+
+
+
 
