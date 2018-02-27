@@ -1,4 +1,4 @@
-#!/bin/env perl
+#!/usr/bin/env perl
 
 use IO::Uncompress::Gunzip qw(gunzip $GunzipError) ;
 my $fastq_file_path = shift;
