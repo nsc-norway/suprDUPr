@@ -28,19 +28,22 @@ END
  die('Missing required argument INPUT_FILE.');
 }
 
-my $fastq_file = new IO::Uncompress::Gunzip($fastq_file_path, "transparent", 1);
+my $fastq_file = new IO::Uncompress::Gunzip($fastq_file_path,
+                                        Transparent => 1,
+                                        MultiStream => 1);
 open(my $fastdup_input, '-');
-while(<$fastq_file>) {
-    print;
-}
-exit(0);
 
+my $prev_fqheader = "";
 while (<$fastdup_input>) {
     my @parts = split;
     my $fqheader = '@' . @parts[0];
+    if ($fqheader eq $prev_fqheader) {
+        next; # Skip repeated (duplicate) header lines
+    }
+    $prev_fqheader = $fqheader;
     my $found = 0;
-    while(<$fastq_file>) {
-        @fqparts = split;
+    while(defined(my $fqdata = <$fastq_file>)) {
+        @fqparts = split / /, $fqdata;
         if ($found) {
             if (++$found == 3) {
                 last;
@@ -50,7 +53,7 @@ while (<$fastdup_input>) {
             $found = 1;
         }
         else {
-            print;
+            print $fqdata;
         }
     }
 }

@@ -6,10 +6,10 @@ then
 	exit 1
 fi
 
-fifo=`mktemp`
+fifo=`mktemp -u`
 mkfifo $fifo
-./filter-dups.pl $1 > filtered_$1 < $fifo &
-./filter-dups.pl $2 > filtered_$2 < $fifo &
 ./fastdup.read_id $1 > $fifo &
+./filter-dups.pl $1 > filtered_`basename ${1%.gz}` < $fifo &
+./filter-dups.pl $2 > filtered_`basename ${2%.gz}` < $fifo &
 wait
 
