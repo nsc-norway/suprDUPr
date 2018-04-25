@@ -20,3 +20,9 @@ The program can be built by entering the source directory and issuing the comman
 This will produce binaries `fastdup` and `fastdup.read_id` in the current directory. Run the binaries to get
 a list of options.
 
+## Programs and pipelines
+
+  * The main program is `fastdup`. It examines sequence reads in a 
+    fastq file (optionally gzip compressed), and computes the fraction
+    of reads which are "local" duplicates.
+
