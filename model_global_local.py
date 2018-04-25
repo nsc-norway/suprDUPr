@@ -15,7 +15,7 @@ y_lim_dist = 2500
 # Generate nseq_reads by sampling randomly from the space of [0,nseq_orig].
 def generate_reads(nseq_orig, nseq_reads):
     # Simulate that we include first nseq_orig reads, representing the original library
-    # that undergoes PCR
+    # that undergoes PCR. 
     #reads = numpy.arange(min(nseq_reads, nseq_orig)) 
     # Then add on duplicates if we require more reads
     reads = numpy.random.random_integers(1, nseq_orig, nseq_reads)
@@ -89,6 +89,26 @@ def analyse(library_size):
     reads, xs, ys, tiles = generate_reads(library_size, total_reads)
     return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
 
+# Analysis with sub-libraries comprising a 
+def analyse_with_sublibraries(param):
+    sub_library_sizes, sub_fractions_of_reads = param
+    remaining = 1.0 - sum(sub_fraction_of_reads)
+    if remaining > 0.00001: # Generate moderately random reads for remaining
+        sub_library_sizes.append(total_reads * remaining)
+        sub_fractions_of_reads.append(remaining)
 
+    reads, xs, ys, tiles = [numpy.empty(total_reads) for _ in range(4)]
+    start_read = 0
+    for sub_library_size, sub_fraction_of_reads in\
+                    zip(sub_library_sizes, sub_fractions_of_reads):
+        num_reads = int(total_reads*sub_fraction_of_reads)
+        end_read = start_read + num_reads
+        reads[start_read:end_read],\
+           xs[start_read:end_read],\
+           ys[start_read:end_read],\
+        tiles[start_read:end_read] = generate_reads(sub_library_size, num_reads)
+        start_read += num_reads
+
+    return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
 
 
