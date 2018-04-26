@@ -65,12 +65,26 @@ https://stackoverflow.com/questions/104322/how-do-you-install-boost-on-macos
 
 One of these commands might do it, if you have a package system such as MacPorts/Homebrew installed:
 
-    $ sudo ports install boost +universal
     $ sudo ports install boost
     $ brew install boost
     $ fink install boost # ?
 
-TODO!
+You may also need to install the package libz. Specify the package system's include and library directory, or if
+you installed boost directly, you may need to specify its directories. For MacPorts it's:
+
+    CFLAGS="-I/opt/local/include -L/opt/local/lib" make
+
+I believe this may work for Homebrew:
+
+    CFLAGS="-I/usr/local/include -L/usr/local/lib" make
+
+In case you get the following error, the boost library files may be installed with a suffix:
+
+    ld: library not found for -lboost_program_options
+
+Try this (use a CFLAGS that worked before):
+
+    CFLAGS="-I/opt/local/include -L/opt/local/lib" BOOST_LIB_SUFF="-mt" make
 
 
 ### CentOS 6 / RHEL 6
