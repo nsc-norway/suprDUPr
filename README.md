@@ -154,7 +154,7 @@ script will produce two new fastq files, with the prefix `filtered_`.
 ### Python scripts
 
 The python scripts are included as a kind of documentation. They are only used to simulate how
-many duplicates are detected in certain well defined scenarios.
+many duplicates are detected in certain well defined scenarios, and aren't useful to analyse data.
 
 
 ## Bugs / comments
