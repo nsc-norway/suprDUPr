@@ -3,6 +3,9 @@ import model_global_local
 import numpy
 import multiprocessing
 
+# Run a model to determine the fraction of randomly positioned duplicates which are 
+# identified as co-located duplicates.
+
 # This exists primarily to run the code in model_global_local.py
 # It's a separate file so we can use multiprocessing -- with a single file there 
 # would be some weird bugs.

@@ -92,7 +92,7 @@ def analyse(library_size):
 # Analysis with sub-libraries comprising a 
 def analyse_with_sublibraries(param):
     sub_library_sizes, sub_fractions_of_reads = param
-    remaining = 1.0 - sum(sub_fraction_of_reads)
+    remaining = 1.0 - sum(sub_fractions_of_reads)
     if remaining > 0.00001: # Generate moderately random reads for remaining
         sub_library_sizes.append(total_reads * remaining)
         sub_fractions_of_reads.append(remaining)
