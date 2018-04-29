@@ -165,10 +165,12 @@ to count only reads which are duplicates in both read 1 and read 2.
 Assuming we have two files, R1.fastq and R2.fastq, the following command
 counts paired-end duplicates:
 
-    comm -12 <( ./fastdup.read_id R1.fastq.gz | cut -f1 | uniq | sort ) <( ./fastdup.read_id R2.fastq.gz | cut -f1 | uniq | sort ) | wc -l
+    comm -12 <( ./fastdup.read_id R1.fastq | cut -f1 | uniq | sort ) <( ./fastdup.read_id R2.fastq | cut -f1 | uniq | sort ) | wc -l
 
 It will produce the normal fastdup output for both files, and then the last
-line of output contains the number of paired-end duplicates.
+line of output contains the number of paired-end duplicates. If working with
+unsorted fastq files, you may have to swap the `sort` and `uniq` commands
+around.
 
 ### Python scripts
 
