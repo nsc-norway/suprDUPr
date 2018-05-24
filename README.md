@@ -154,10 +154,31 @@ script will produce two new fastq files, with the prefix `filtered_`.
     $ ./filter-pe.sh sample_R1.fastq sample_R2.fastq
 
 
+### Paired-end analysis
+
+Usually it is sufficient to analyse just one of the reads in paired-end data.
+Analysis of both reads may be useful if the library has been sequenced very
+deeply. By analysing both ends, one can avoid counting fragments which have the
+same sequence in read one, but a different insert size. These fragments are
+not caused by "sequencing-related" effects, such as ExAmp -- instead they are
+genuinely different reads.
+
+It is possible to use common Unix commands, and the fastdup.read_id program,
+to count only reads which are duplicates in both read 1 and read 2.
+Assuming we have two files, R1.fastq and R2.fastq, the following command
+counts paired-end duplicates:
+
+    comm -12 <( ./fastdup.read_id R1.fastq | cut -f1 | uniq | sort ) <( ./fastdup.read_id R2.fastq | cut -f1 | uniq | sort ) | wc -l
+
+It will produce the normal fastdup output for both files, and then the last
+line of output contains the number of paired-end duplicates. If working with
+unsorted fastq files, you may have to swap the `sort` and `uniq` commands
+around.
+
 ### Python scripts
 
 The python scripts are included as a kind of documentation. They are only used to simulate how
-many duplicates are detected in certain well defined scenarios.
+many duplicates are detected in certain well defined scenarios, and aren't useful to analyse data.
 
 
 ## Bugs / comments
