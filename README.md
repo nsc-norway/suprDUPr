@@ -1,4 +1,7 @@
-# fastdup
+# suprDUPr
+
+This program was previously known as fastdup, that's why the repo name and the binary are still
+called fastdup. We will try to change the name of the binary in the future.
 
 Tool for identifying duplicates reads in close physical proximity on patterned Illumina flow cells.
 
@@ -53,7 +56,7 @@ This works at least as far back as Ubuntu 16.04, Debian stretch (9), maybe also 
     $ make
 
 This pulls in the boost libraries in addition to the development headers, as dependencies. You can omit the -dev
-suffix in the command above to just install libraries, to run but not build fastdup.
+suffix in the command above to just install libraries, to run but not build suprDUPr.
 
 
 ### macOS
