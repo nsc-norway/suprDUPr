@@ -42,7 +42,7 @@ models = [
         ([5000*slf, 5000*slf, 5000*slf, 5000*slf], [0.1, 0.05, 0.008, 0.008]),
         ]
 
-global_local = pool.map(model_global_local.analyse_with_sublibraries, models)
+global_local = map(model_global_local.analyse_with_sublibraries, models)
 total_reads = model_global_local.total_reads
 for o, (g, l) in zip(models, global_local):
     print("["+", ".join("%3.1f" % oi for oi in o[0]) + "]", o[1], g / total_reads, l / total_reads)

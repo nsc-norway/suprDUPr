@@ -18,10 +18,10 @@ def generate_reads(nseq_orig, nseq_reads):
     # that undergoes PCR. 
     #reads = numpy.arange(min(nseq_reads, nseq_orig)) 
     # Then add on duplicates if we require more reads
-    reads = numpy.random.random_integers(1, nseq_orig, nseq_reads)
-    xs = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
-    ys = numpy.random.random_integers(*x_lim_tot, (nseq_reads))
-    tiles = numpy.random.random_integers(1, n_tiles, (nseq_reads))
+    reads = numpy.random.randint(0, nseq_orig, nseq_reads)
+    xs = numpy.random.randint(*x_lim_tot, (nseq_reads))
+    ys = numpy.random.randint(*x_lim_tot, (nseq_reads))
+    tiles = numpy.random.randint(0, n_tiles, (nseq_reads))
     return reads, xs, ys, tiles
 
 
@@ -103,6 +103,8 @@ def analyse_with_sublibraries(param):
                     zip(sub_library_sizes, sub_fractions_of_reads):
         num_reads = int(total_reads*sub_fraction_of_reads)
         end_read = start_read + num_reads
+        if sub_library_size < 1:
+            sub_library_size = 1
         reads[start_read:end_read],\
            xs[start_read:end_read],\
            ys[start_read:end_read],\
