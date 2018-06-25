@@ -8,7 +8,7 @@ fi
 
 fifo=`mktemp -u`
 mkfifo $fifo
-./fastdup.read_id $1 > $fifo &
+./suprDUPr.read_id $1 > $fifo &
 ./filter-dups.pl $1 > filtered_`basename ${1%.gz}` < $fifo &
 ./filter-dups.pl $2 > filtered_`basename ${2%.gz}` < $fifo &
 wait

@@ -1,7 +1,6 @@
 # suprDUPr
 
-This program was previously known as fastdup, that's why the repo name and the binary are still
-called fastdup. We will try to change the name of the binary in the future.
+This program was previously known as fastdup, that's why the repo name is still called fastdup.
 
 Tool for identifying duplicates reads in close physical proximity on patterned Illumina flow cells.
 
@@ -21,14 +20,14 @@ on the following two Boost libraries, at version 1.48 or newer:
 You can obtain the source directory by downloading this git repository as a zip file, using the
 "Clone or download" button in Github. Alternatively clone it using:
 
-    $ git clone https://github.com/nsc-norway/fastdup
+    $ git clone https://github.com/nsc-norway/suprDUPr
 
-This produces a source directory `fastdup/` which you should then enter. The program can be built using
+This produces a source directory `suprDUPr/` which you should then enter. The program can be built using
 
     $ make
 
 once the dependencies are satisfied.
-This will produce binaries `fastdup` and `fastdup.read_id` in the current directory. Run the binaries to get
+This will produce binaries `suprDUPr` and `suprDUPr.read_id` in the current directory. Run the binaries to get
 a list of options, and see the "Programs and Pipelines" section below for descriptions.
 There is no installation script -- you can copy the executable to `/usr/bin` or some other directory on
 the system PATH.
@@ -115,37 +114,37 @@ After installing dependencies, enter a scl subshell and compile it:
 
 Run with default options:
 
-    $ fastdup data.fastq
+    $ suprDUPr data.fastq
 
 Search for duplicates in a region of +/- 5000 pixels in x coordinate and +/- 3000 pixels in y coordinate:
 
-    $ fastdup -x 5000 -y 3000 data.fastq
+    $ suprDUPr -x 5000 -y 3000 data.fastq
 
 Process a file which is not sorted:
 
-    $ fastdup --unsorted data.fastq
+    $ suprDUPr --unsorted data.fastq
 
 
 ### Description
 
-  - The main program is called `fastdup`. It examines sequence reads in a
+  - The main program is called `suprDUPr`. It examines sequence reads in a
     fastq file (optionally gzip compressed), and computes the fraction
     of reads which are "local" duplicates.
-  - A seconary program is `fastdup.read_id`. It outputs part of the FASTQ
+  - A seconary program is `suprDUPr.read_id`. It outputs part of the FASTQ
     header for all reads identified as duplicates.
 
 
 ### Filtering pipeline
 
 The package also includes a PERL script to filter a file based on the output of
-`fastdup.read_id`. For usage information, run:
+`suprDUPr.read_id`. For usage information, run:
 
     ./filter-dups.pl
 
 This command outputs reads which are not "sequencinge duplicates" in data.fastq,
 to a file called filtered.fastq:
 
-    $ ./fastdup.read_id data.fastq | ./filter-dups.pl data.fastq > filtered.fastq
+    $ ./suprDUPr.read_id data.fastq | ./filter-dups.pl data.fastq > filtered.fastq
 
 The filter-pe script can be used to filter  paired-end reads, but note that only
 the first file is considered for the purpose of identifying duplicates. This
@@ -163,14 +162,14 @@ same sequence in read one, but a different insert size. These fragments are
 not caused by "sequencing-related" effects, such as ExAmp -- instead they are
 genuinely different reads.
 
-It is possible to use common Unix commands, and the fastdup.read_id program,
+It is possible to use common Unix commands, and the suprDUPr.read_id program,
 to count only reads which are duplicates in both read 1 and read 2.
 Assuming we have two files, R1.fastq and R2.fastq, the following command
 counts paired-end duplicates:
 
-    comm -12 <( ./fastdup.read_id R1.fastq | cut -f1 | uniq | sort ) <( ./fastdup.read_id R2.fastq | cut -f1 | uniq | sort ) | wc -l
+    comm -12 <( ./suprDUPr.read_id R1.fastq | cut -f1 | uniq | sort ) <( ./suprDUPr.read_id R2.fastq | cut -f1 | uniq | sort ) | wc -l
 
-It will produce the normal fastdup output for both files, and then the last
+It will produce the normal suprDUPr output for both files, and then the last
 line of output contains the number of paired-end duplicates. If working with
 unsorted fastq files, you may have to swap the `sort` and `uniq` commands
 around.

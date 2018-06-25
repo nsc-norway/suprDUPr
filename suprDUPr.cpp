@@ -12,9 +12,9 @@
 #include <boost/program_options.hpp>
 
 /*
- * fastdup - the duplicate detection tool
+ * suprDUPr - the duplicate detection tool
  *
- * This source file contains the entire fastdup program. The main function
+ * This source file contains the entire suprDUPr program. The main function
  * is located at the bottom of the file.
  *
  * The code can be built in two different ways, depending on the value 
@@ -599,7 +599,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    cerr << "-- fastdup v1.0 --\n";
+    cerr << "-- suprDUPr v1.0 --\n";
 
     ostream* output_ptr = &cout;
     ofstream output_file;

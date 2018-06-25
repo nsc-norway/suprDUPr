@@ -7,7 +7,7 @@ pool = multiprocessing.Pool()
 
 # This is part of a series of scripts which models sequencing reads and aims
 # to determine how frequently randomly positioned reads are identified as 
-# co-located reads, by an algorithm equivalent to "fastdup".
+# co-located reads, by an algorithm equivalent to "suprDUPr".
 
 # Computes duplicates under an alternative distribution of reads, in
 # which they are sampled from a collection of "sub-libraries". These

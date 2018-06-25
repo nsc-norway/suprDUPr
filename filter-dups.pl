@@ -8,12 +8,12 @@ if (!$fastq_file_path) {
     
     == FASTQ Filter script ==
 
-  This script may be used in conjunction with fastdup.read_id
+  This script may be used in conjunction with suprDUPr.read_id
   to filter FASTQ files for local duplicates.
   Quick start: To output a FASTQ file with duplicates removed to
   standard output, use:
  
-  \$ ./fastdup.read_id INPUT_FILE | ./filter-dups.pl INPUT_FILE
+  \$ ./suprDUPr.read_id INPUT_FILE | ./filter-dups.pl INPUT_FILE
 
   (note that the input file has to be specified twice)
 
@@ -31,10 +31,10 @@ END
 my $fastq_file = new IO::Uncompress::Gunzip($fastq_file_path,
                                         Transparent => 1,
                                         MultiStream => 1);
-open(my $fastdup_input, '-');
+open(my $suprDUPr_input, '-');
 
 my $prev_fqheader = "";
-while (<$fastdup_input>) {
+while (<$suprDUPr_input>) {
     my @parts = split;
     my $fqheader = '@' . @parts[0];
     if ($fqheader eq $prev_fqheader) {
