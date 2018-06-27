@@ -2,6 +2,7 @@
 
 import numpy
 
+
 # Area parameters
 x_lim_tot = (1100, 33000)
 y_lim_tot = (1000, 50000)
@@ -10,6 +11,10 @@ n_tiles = 112
 # Max distance along the axis (so, the window size is about twice the *_lim_dist)
 x_lim_dist = 2500
 y_lim_dist = 2500
+
+# Total reads determines the precision of the simulation. Many parameters are 
+# based on total_reads, and will give incorrect results if this is changed.
+total_reads = 300000000
 
 
 # Generate nseq_reads by sampling randomly from the space of [0,nseq_orig].
@@ -69,8 +74,6 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
 
     return num_global_duplicates, local_duplicate_counter
 
-
-total_reads = 10000000
 
 # Code for analysis of window size
 reads, xs, ys, tiles = generate_reads(10, total_reads) 
