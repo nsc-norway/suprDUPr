@@ -1,9 +1,6 @@
 import model_global_local
 
 import numpy
-import multiprocessing
-
-pool = multiprocessing.Pool()
 
 # This is part of a series of scripts which models sequencing reads and aims
 # to determine how frequently randomly positioned reads are identified as 
@@ -28,23 +25,17 @@ print("  x: ", model_global_local.x_lim_dist)
 print("  y: ", model_global_local.x_lim_dist)
 print("")
 
-# Number of possible substrings inside a sub-library. In general we want total_reads
-# to just decide the precision, so the simulated coverage should stay constant. The 
-# number of substrings should be expressed as a function of total_reads.
-
-# This represents a 5000 nucleotide long subsequence relative to the human genome at
-# 30x cof
-
-slf = (1 / (3e9 * 30)) * model_global_local.total_reads
+# Number of possible substrings inside a sub-library. Note that results
+# depend on the number of reads simulated.
 
 models = [
-        ([5000*slf, 5000*slf, 5000*slf, 5000*slf], [0.005, 0.004, 0.003, 0.002]),
-        ([5000*slf, 5000*slf, 5000*slf, 5000*slf], [0.01, 0.01, 0.008, 0.008]),
-        ([5000*slf, 5000*slf, 5000*slf, 5000*slf], [0.1, 0.05, 0.008, 0.008]),
-        ([5000*slf], [0.2]),
+        ([5000, 5000, 5000, 5000], [0.005, 0.004, 0.003, 0.002]),
+        ([5000, 5000, 5000, 5000], [0.01, 0.01, 0.008, 0.008]),
+        ([5000, 5000, 5000, 5000], [0.1, 0.05, 0.008, 0.008]),
+        ([5000], [0.2]),
         ]
 
-global_local = pool.map(model_global_local.analyse_with_sublibraries, models)
+global_local = map(model_global_local.analyse_with_sublibraries, models)
 total_reads = model_global_local.total_reads
 print("[Sublibrary_Lengths] [Sublibrary_Fractions] global_dup local_dups")
 for o, (g, l) in zip(models, global_local):

@@ -1,6 +1,10 @@
 # Toy model for determining the relationship between local and global duplicates
 
 import numpy
+from multiprocessing import Pool, Array, current_process
+import ctypes
+
+
 
 # Area parameters
 x_lim_tot = (1100, 33000)
@@ -11,19 +15,54 @@ n_tiles = 112
 x_lim_dist = 2500
 y_lim_dist = 2500
 
+# Total reads determines the precision of the simulation. Many parameters are 
+# based on total_reads, and will give incorrect results if this is changed.
+total_reads = int(300*1e6)
+
+# The strategy is to avoid making "obvious" simplifications, instead simulating 
+# everything as it is in real data, to avoid mistakes. There are, however, two (one?)
+# major simplifications, done to reduce the runtime:
+#  - Integers are used instead of actual nucleotide sequences
+
 
 # Generate nseq_reads by sampling randomly from the space of [0,nseq_orig].
 def generate_reads(nseq_orig, nseq_reads):
-    # Simulate that we include first nseq_orig reads, representing the original library
-    # that undergoes PCR. 
-    #reads = numpy.arange(min(nseq_reads, nseq_orig)) 
-    # Then add on duplicates if we require more reads
+    # Simulated reads: There are nseq_orig different possibilities, and nseq_reads
     reads = numpy.random.randint(0, nseq_orig, nseq_reads)
     xs = numpy.random.randint(*x_lim_tot, (nseq_reads))
     ys = numpy.random.randint(*y_lim_tot, (nseq_reads))
     tiles = numpy.random.randint(0, n_tiles, (nseq_reads))
     return reads, xs, ys, tiles
 
+
+class CounterWorker(object):
+    def __init__(self, indexes, tiles, xs, ys, count_list, stride):
+        self.indexes, self.tiles, self.xs, self.ys, self.count_list, self.stride\
+                = (indexes, tiles, xs, ys, count_list, stride)
+    
+    def testnode(self, start):
+        dup_count = 0
+        end = min(self.stride+start, len(self.count_list))
+        for ii, icount in self.count_list[start:end]:
+            # The positions of all duplicates of this read in the arrays reads, xs, ys, tiles
+            dup_indexes = numpy.argwhere(self.indexes == ii)
+
+            # Create a matrix with columns tile, y, x, rows for each of the duplicates
+            # in this group of sequences
+            dup_coords = numpy.stack(
+                (self.tiles[dup_indexes],self.xs[dup_indexes],self.ys[dup_indexes]),
+                axis=1
+                )
+
+            for j in range(1, icount):
+                if numpy.any(
+                    (dup_coords[j,0] == dup_coords[0:j,0]) &
+                    (numpy.fabs(dup_coords[j,1] - dup_coords[0:j,1]) < y_lim_dist) &
+                    (numpy.fabs(dup_coords[j,2] - dup_coords[0:j,2]) < x_lim_dist)
+                    ):
+                    dup_count += 1
+        #print(current_process().pid, "> For data starting at", start, "Returning", dup_count)
+        return dup_count
 
 # ** Function to compute the duplication ratios, global and local **
 def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
@@ -37,40 +76,26 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
     # We also request return_inverse, which returns an array which is as long as reads, which 
     # contains an index into unique_seqs (array of uniques) for each element in reads. The 
     # variable indexes is used in the next section (local duplicates).
+    print(current_process().pid, "> Get unique reads")
     unique_seqs, indexes, counts = numpy.unique(reads, return_inverse=True, return_counts=True)
 
+    print(current_process().pid, "> Compute sum")
     num_global_duplicates = (counts - 1).sum()
-
 
     # ** Local duplication ratio **
     # Count the number of reads within a threshold distance, and in the same tile
-    local_duplicate_counter = 0
 
     # Looping over all unique simulated sequences. We only need their index into the
     # unique_seqs array and their count.
-    for i, count in ((i, count) for i, count in enumerate(counts) if count != 1):
-        # The positions of all duplicates of this read in the arrays reads, xs, ys, tiles
-        dup_indexes = numpy.argwhere(indexes == i)
+    count_list = numpy.array([(i, count) for i, count in enumerate(counts) if count != 1], 'int64')
+    print(current_process().pid, "> Count duplicates, unique entries=", len(count_list))
+    stride = 10000
+    cw = CounterWorker(indexes, tiles, xs, ys, count_list, stride)
+    pool = Pool()
+    #print(current_process().pid, "> Number of jobs will be",  len(list(range(0, len(count_list), stride))))
+    local_duplicate_count = sum(pool.imap_unordered(cw.testnode, range(0, len(count_list), stride)))
+    return num_global_duplicates, local_duplicate_count
 
-        # Create a matrix with columns tile, y, x, rows for each of the duplicates
-        # in this group of sequences
-        dup_coords = numpy.stack(
-            (tiles[dup_indexes],xs[dup_indexes],ys[dup_indexes]),
-            axis=1
-            )
-
-        for j in range(1, count):
-            if numpy.any(
-                (dup_coords[j,0] == dup_coords[0:j,0]) &
-                (numpy.fabs(dup_coords[j,1] - dup_coords[0:j,1]) < y_lim_dist) &
-                (numpy.fabs(dup_coords[j,2] - dup_coords[0:j,2]) < x_lim_dist)
-                ):
-                local_duplicate_counter += 1
-
-    return num_global_duplicates, local_duplicate_counter
-
-
-total_reads = 10000000
 
 # Code for analysis of window size
 reads, xs, ys, tiles = generate_reads(10, total_reads) 
@@ -97,15 +122,15 @@ def analyse_with_sublibraries(param):
         sub_library_sizes.append(total_reads * remaining)
         sub_fractions_of_reads.append(remaining)
 
-    reads, xs, ys, tiles = [numpy.empty(total_reads) for _ in range(4)]
+    reads, xs, ys, tiles = [numpy.empty(total_reads, dtype='int64') for _ in range(4)]
     start_read = 0
     for sub_library_size, sub_fraction_of_reads in\
                     zip(sub_library_sizes, sub_fractions_of_reads):
         num_reads = int(total_reads*sub_fraction_of_reads)
         end_read = start_read + num_reads
-        print("sub_library_size", sub_library_size)
         if sub_library_size < 1:
             sub_library_size = 1
+        print(current_process().pid, "> Generate reads...")
         reads[start_read:end_read],\
            xs[start_read:end_read],\
            ys[start_read:end_read],\
