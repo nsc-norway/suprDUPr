@@ -1,6 +1,7 @@
 # suprDUPr
 
-This program was previously known as fastdup, that's why the repo name is still called fastdup.
+This program was previously known as fastdup, sorry about any confusion that may cause 
+(and I hope you like the new name).
 
 Tool for identifying duplicates reads in close physical proximity on patterned Illumina flow cells.
 

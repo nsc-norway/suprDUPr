@@ -6,6 +6,7 @@ import ctypes
 
 
 
+
 # Area parameters
 x_lim_tot = (1100, 33000)
 y_lim_tot = (1000, 50000)
@@ -95,7 +96,6 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
     #print(current_process().pid, "> Number of jobs will be",  len(list(range(0, len(count_list), stride))))
     local_duplicate_count = sum(pool.imap_unordered(cw.testnode, range(0, len(count_list), stride)))
     return num_global_duplicates, local_duplicate_count
-
 
 # Code for analysis of window size
 reads, xs, ys, tiles = generate_reads(10, total_reads) 
