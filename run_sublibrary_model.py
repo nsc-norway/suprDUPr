@@ -29,10 +29,10 @@ print("")
 # depend on the number of reads simulated.
 
 models = [
+        ([5000], [0.2]),
         ([5000, 5000, 5000, 5000], [0.005, 0.004, 0.003, 0.002]),
         ([5000, 5000, 5000, 5000], [0.01, 0.01, 0.008, 0.008]),
         ([5000, 5000, 5000, 5000], [0.1, 0.05, 0.008, 0.008]),
-        ([5000], [0.2]),
         ]
 
 global_local = map(model_global_local.analyse_with_sublibraries, models)

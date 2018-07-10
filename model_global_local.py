@@ -3,7 +3,7 @@
 import numpy
 from multiprocessing import Pool, Array, current_process
 import ctypes
-
+import os
 
 
 
@@ -62,12 +62,16 @@ class CounterWorker(object):
                     (numpy.fabs(dup_coords[j,2] - dup_coords[0:j,2]) < x_lim_dist)
                     ):
                     dup_count += 1
-        #print(current_process().pid, "> For data starting at", start, "Returning", dup_count)
+        print(current_process().pid, "> For data starting at", start, "Returning", dup_count)
         return dup_count
+
+global_cw = None
+def run_it(start):
+    return global_cw.testnode(start)
 
 # ** Function to compute the duplication ratios, global and local **
 def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
-
+    global global_cw
     # ** Global duplication ratio: count number of duplicates for each unique sequence, regardless
     # of position**
     
@@ -90,16 +94,19 @@ def get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist):
     # unique_seqs array and their count.
     count_list = numpy.array([(i, count) for i, count in enumerate(counts) if count != 1], 'int64')
     print(current_process().pid, "> Count duplicates, unique entries=", len(count_list))
-    stride = 10000
-    cw = CounterWorker(indexes, tiles, xs, ys, count_list, stride)
-    pool = Pool()
-    #print(current_process().pid, "> Number of jobs will be",  len(list(range(0, len(count_list), stride))))
-    local_duplicate_count = sum(pool.imap_unordered(cw.testnode, range(0, len(count_list), stride)))
+    stride = 100
+    count_list.flags.writeable = False
+    global_cw = CounterWorker(indexes, tiles, xs, ys, count_list, stride)
+    pool = Pool(len(os.sched_getaffinity(0)))
+    joblist = list(range(0, len(count_list), stride))
+    print(current_process().pid, "> Number of jobs will be", len(joblist))
+    local_duplicate_count = sum(pool.imap_unordered(run_it, joblist))
+    #local_duplicate_count = sum(map(run_it, joblist))
     return num_global_duplicates, local_duplicate_count
 
 # Code for analysis of window size
-reads, xs, ys, tiles = generate_reads(10, total_reads) 
-coords = numpy.stack((tiles, ys, xs), axis=1)
+#reads, xs, ys, tiles = generate_reads(10, total_reads) 
+#coords = numpy.stack((tiles, ys, xs), axis=1)
 
 def eval_in_range(ctyx):
     tile, y, x = ctyx
@@ -136,7 +143,8 @@ def analyse_with_sublibraries(param):
            ys[start_read:end_read],\
         tiles[start_read:end_read] = generate_reads(sub_library_size, num_reads)
         start_read += num_reads
-
+    for array in reads, xs, ys, tiles:
+        array.flags.writeable = False
     return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
 
 
