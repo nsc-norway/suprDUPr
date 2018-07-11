@@ -24,31 +24,35 @@ function generate_reads(nseq_orig, nseq_reads)
 end
 
 function get_duplicate_counts(reads_xs_ys_tiles, x_lim_dist, y_lim_dist)
+    lastreport = Dates.now()
+
     println("Calling groupinds...")
     groupindes = groupinds(reads_xs_ys_tiles[:, 1])
     println("End for groupindes call...")
 
-    num_global_duplicates = length(reads_xs_ys_tiles) - length(groupindes)
+    num_global_duplicates = 0
+    #size(reads_xs_ys_tiles, 1) - length(groupindes)
     num_local_duplicates = 0
 
-    lastreport = Dates.now()
     for (i, dup_indexes) = enumerate(groupindes)
         if length(dup_indexes) > 1
             dup_coords = reads_xs_ys_tiles[dup_indexes, [4, 2, 3]]
             for j = 2:size(dup_coords, 1)
-                if any(
-                    (dup_coords[j,1] .== dup_coords[1:j,1]) .&
+                test = any(dup_coords[j,1] .== dup_coords[1:j,1] .&
                     (abs.(dup_coords[j,2] - dup_coords[1:j,2]) .< y_lim_dist) .&
                     (abs.(dup_coords[j,3] - dup_coords[1:j,3]) .< x_lim_dist)
                     )
+                if test
                     num_local_duplicates += 1
                 end
+                num_global_duplicates += 1
             end
             now = Dates.now()
             if now - lastreport > Dates.Millisecond(120000)
                 lastreport = now
                 println("Completed ", i, " of ", length(groupindes), " groupsize=", length(dup_indexes),
-                            " local_dups=", num_local_duplicates)
+                            " global_dups=", num_global_duplicates, " local_dups=", num_local_duplicates)
+                flush(STDOUT)
             end
         end
     end
@@ -84,4 +88,7 @@ end
 println("[Sublibrary_Lengths] [Sublibrary_Fractions] global_dup local_dups")
 println("5000 / 0.2] ", g / total_reads, " ", l / total_reads)
 
+(g, l) = analyse_with_sublibraries([5000], [0.3])
+
+println("5000 / 0.3] ", g / total_reads, " ", l / total_reads)
 
