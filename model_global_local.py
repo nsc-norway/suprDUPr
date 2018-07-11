@@ -121,30 +121,3 @@ def analyse(library_size):
     reads, xs, ys, tiles = generate_reads(library_size, total_reads)
     return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
 
-# Analysis with sub-libraries comprising a 
-def analyse_with_sublibraries(param):
-    sub_library_sizes, sub_fractions_of_reads = param
-    remaining = 1.0 - sum(sub_fractions_of_reads)
-    if remaining > 0.00001: # Generate moderately random reads for remaining
-        sub_library_sizes.append(total_reads * remaining)
-        sub_fractions_of_reads.append(remaining)
-
-    reads, xs, ys, tiles = [numpy.empty(total_reads, dtype='int64') for _ in range(4)]
-    start_read = 0
-    for sub_library_size, sub_fraction_of_reads in\
-                    zip(sub_library_sizes, sub_fractions_of_reads):
-        num_reads = int(total_reads*sub_fraction_of_reads)
-        end_read = start_read + num_reads
-        if sub_library_size < 1:
-            sub_library_size = 1
-        print(current_process().pid, "> Generate reads...")
-        reads[start_read:end_read],\
-           xs[start_read:end_read],\
-           ys[start_read:end_read],\
-        tiles[start_read:end_read] = generate_reads(sub_library_size, num_reads)
-        start_read += num_reads
-    for array in reads, xs, ys, tiles:
-        array.flags.writeable = False
-    return get_duplicate_counts(reads, xs, ys, tiles, x_lim_dist, y_lim_dist)
-
-
