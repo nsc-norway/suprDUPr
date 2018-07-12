@@ -175,10 +175,14 @@ line of output contains the number of paired-end duplicates. If working with
 unsorted fastq files, you may have to swap the `sort` and `uniq` commands
 around.
 
-### Python scripts
+### Model
 
-The python scripts are included as a kind of documentation. They are only used to simulate how
-many duplicates are detected in certain well defined scenarios, and aren't useful to analyse data.
+Some statistical models were developed to estimate the effect of global duplicates
+on the estimate for local duplicates. For example, how many randomly positioned 
+duplicates are necessary in order to get an appreciable result from suprDUPr?
+
+These scripts are located in the model/ subdirectory. They are not useful for 
+analysing data.
 
 
 ## Bugs / comments
