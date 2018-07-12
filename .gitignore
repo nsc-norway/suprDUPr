@@ -29,9 +29,8 @@
 *.app
 
 
-fastdup
-fastdup.read_id
-duplicate-finder.subrange
+suprDUPr
+suprDUPr.read_id
 
 # Data files
 *.txt
