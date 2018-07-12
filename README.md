@@ -1,8 +1,5 @@
 # suprDUPr
 
-This program was previously known as fastdup, sorry about any confusion that may cause 
-(and I hope you like the new name).
-
 Tool for identifying duplicates reads in close physical proximity on patterned Illumina flow cells.
 
 The tool is designed to analyse FASTQ files with un-trimmed reads, in the format output by BCL
