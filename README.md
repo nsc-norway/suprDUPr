@@ -5,6 +5,73 @@ Tool for identifying duplicates reads in close physical proximity on patterned I
 The tool is designed to analyse FASTQ files with un-trimmed reads, in the format output by BCL
 conversion software (e.g. bcl2fastq).
 
+## Programs and pipelines
+
+### Examples
+
+Run with default options:
+
+    $ suprDUPr data.fastq
+
+Search for duplicates in a region of +/- 5000 pixels in x coordinate and +/- 3000 pixels in y coordinate:
+
+    $ suprDUPr -x 5000 -y 3000 data.fastq
+
+Process a file which is not sorted:
+
+    $ suprDUPr --unsorted data.fastq
+
+
+### Description
+
+  - The main program is called `suprDUPr`. It examines sequence reads in a
+    fastq file (optionally gzip compressed), and computes the fraction
+    of reads which are "local" duplicates.
+  - A seconary program is `suprDUPr.read_id`. It outputs part of the FASTQ
+    header for all reads identified as duplicates.
+
+
+### Filtering pipeline
+
+The package also includes a PERL script to filter a file based on the output of
+`suprDUPr.read_id`. For usage information, run:
+
+    ./filter-dups.pl
+
+This command outputs reads which are not "sequencinge duplicates" in data.fastq,
+to a file called filtered.fastq:
+
+    $ ./suprDUPr.read_id data.fastq | ./filter-dups.pl data.fastq > filtered.fastq
+
+The filter-pe script can be used to filter  paired-end reads, but note that only
+the first file is considered for the purpose of identifying duplicates. This
+script will produce two new fastq files, with the prefix `filtered_`.
+
+    $ ./filter-pe.sh sample_R1.fastq sample_R2.fastq
+
+
+### Paired-end analysis
+
+Usually it is sufficient to analyse just one of the reads in paired-end data.
+Analysis of both reads may be useful if the library has been sequenced very
+deeply. By analysing both ends, one can avoid counting fragments which have the
+same sequence in read one, but a different insert size. These fragments are
+not caused by "sequencing-related" effects, such as ExAmp -- instead they are
+genuinely different reads.
+
+It is possible to use common Unix commands, and the suprDUPr.read_id program,
+to count only reads which are duplicates in both read 1 and read 2.
+Assuming we have two files, R1.fastq and R2.fastq, the following command
+counts paired-end duplicates:
+
+    comm -12 <( ./suprDUPr.read_id R1.fastq | cut -f1 | uniq | sort ) <( ./suprDUPr.read_id R2.fastq | cut -f1 | uniq | sort ) | wc -l
+
+It will produce the normal suprDUPr output for both files, and then the last
+line of output contains the number of paired-end duplicates. If working with
+unsorted fastq files, you may have to swap the `sort` and `uniq` commands
+around.
+
+
 ## How to compile the program
 
 make, and a compiler compatible with C++11 are required to build the program. Furthermore, it relies
@@ -106,71 +173,6 @@ After installing dependencies, enter a scl subshell and compile it:
     $ exit
 
 
-## Programs and pipelines
-
-### Examples
-
-Run with default options:
-
-    $ suprDUPr data.fastq
-
-Search for duplicates in a region of +/- 5000 pixels in x coordinate and +/- 3000 pixels in y coordinate:
-
-    $ suprDUPr -x 5000 -y 3000 data.fastq
-
-Process a file which is not sorted:
-
-    $ suprDUPr --unsorted data.fastq
-
-
-### Description
-
-  - The main program is called `suprDUPr`. It examines sequence reads in a
-    fastq file (optionally gzip compressed), and computes the fraction
-    of reads which are "local" duplicates.
-  - A seconary program is `suprDUPr.read_id`. It outputs part of the FASTQ
-    header for all reads identified as duplicates.
-
-
-### Filtering pipeline
-
-The package also includes a PERL script to filter a file based on the output of
-`suprDUPr.read_id`. For usage information, run:
-
-    ./filter-dups.pl
-
-This command outputs reads which are not "sequencinge duplicates" in data.fastq,
-to a file called filtered.fastq:
-
-    $ ./suprDUPr.read_id data.fastq | ./filter-dups.pl data.fastq > filtered.fastq
-
-The filter-pe script can be used to filter  paired-end reads, but note that only
-the first file is considered for the purpose of identifying duplicates. This
-script will produce two new fastq files, with the prefix `filtered_`.
-
-    $ ./filter-pe.sh sample_R1.fastq sample_R2.fastq
-
-
-### Paired-end analysis
-
-Usually it is sufficient to analyse just one of the reads in paired-end data.
-Analysis of both reads may be useful if the library has been sequenced very
-deeply. By analysing both ends, one can avoid counting fragments which have the
-same sequence in read one, but a different insert size. These fragments are
-not caused by "sequencing-related" effects, such as ExAmp -- instead they are
-genuinely different reads.
-
-It is possible to use common Unix commands, and the suprDUPr.read_id program,
-to count only reads which are duplicates in both read 1 and read 2.
-Assuming we have two files, R1.fastq and R2.fastq, the following command
-counts paired-end duplicates:
-
-    comm -12 <( ./suprDUPr.read_id R1.fastq | cut -f1 | uniq | sort ) <( ./suprDUPr.read_id R2.fastq | cut -f1 | uniq | sort ) | wc -l
-
-It will produce the normal suprDUPr output for both files, and then the last
-line of output contains the number of paired-end duplicates. If working with
-unsorted fastq files, you may have to swap the `sort` and `uniq` commands
-around.
 
 ### Model
 
