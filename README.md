@@ -7,7 +7,44 @@ conversion software (e.g. bcl2fastq).
 
 ## Programs and pipelines
 
-### Examples
+### Description
+
+  - The main program is called `suprDUPr`. It examines sequence reads in a
+    fastq file (optionally gzip compressed), and computes the fraction
+    of reads which are "local" duplicates.
+  - A seconary program is `suprDUPr.read_id`. It outputs part of the FASTQ
+    header for all reads identified as duplicates.
+  - See the scripts below for more functionality.
+
+The main programs only operate on single FASTQ files, but they can be combined
+with other Unix command-line tools to process paired-end data.
+
+
+### Main program usage
+
+The options for `suprDUPr` and `suprDUPr.read_id` are the same.
+
+    usage: ./suprDUPr [options] input_file [output_file]
+    Allowed options:
+      -x [ --winx ] arg (=2500)  x coordinate window, +/- pixels
+      -y [ --winy ] arg (=2500)  y coordinate window, +/- pixels
+      -s [ --start ] arg (=10)   First nucleotide position in reads to consider
+      -e [ --end ] arg (=60)     Last nucleotide position in reads to consider (use
+                                 -1 for the end of the read)
+      -r [ --region-sorted ]     Assume the input file is sorted by region (tile),
+                                 but not by (y, x) coordinate within the region.
+      -u [ --unsorted ]          Process unsorted file (a large hash-size is
+                                 recommended, see --hash-size). This mode requires
+                                 all data to be stored in memory, and it is not
+                                 well optimised.
+      --hash-size arg (=4194304) Hash table size (bytes), must be a power of 2.
+                                 (increase if winy>2500).
+      -h [ --help ]              Show this help message
+    
+      Specify - for input_file to read from stdin.
+
+
+### Basic examples
 
 Run with default options:
 
@@ -17,21 +54,42 @@ Search for duplicates in a region of +/- 5000 pixels in x coordinate and +/- 300
 
     $ suprDUPr -x 5000 -y 3000 data.fastq
 
+Use the first 60 bases in each read for comparison. Note that no mismatches are allowed
+in this region:
+
+    $ suprDUPr -s 0 -e 59 data.fastq
+
 Process a file which is not sorted:
 
     $ suprDUPr --unsorted data.fastq
 
 
-### Description
+### Filtering pipeline (duplicate removal)
 
-  - The main program is called `suprDUPr`. It examines sequence reads in a
-    fastq file (optionally gzip compressed), and computes the fraction
-    of reads which are "local" duplicates.
-  - A seconary program is `suprDUPr.read_id`. It outputs part of the FASTQ
-    header for all reads identified as duplicates.
+The filter.sh script can be used to remove duplicates in single-read or paired-end reads.
+Note that only the first file (Read 1) is considered for the purpose of identifying 
+duplicates. It uses the `suprDUPr.read_id` program and a PERL script `filter-dups.pl`
+to perform the duplicate removal. `filter.sh` itself is mainly a wrapper program,
+which uses a named pipe to apply the same "read-ID" filtering to both sequence reads
+in case of paired-end data.
+
+Example:
+
+    $ ./filter.sh sample_R1.fastq sample_R2.fastq
+
+Produces files:
+
+    filtered_sample_R1.fastq    filtered_sample_R2.fastq
+
+The input of filter.sh must be a real file, not a pipe. It is read twice, by 
+`suprDUPr.read_id` and by `filter-dups.pl`. The overhead of reading in two streams
+should be low, due to caching. However, the decompression has to be done twice (at the
+same time) if the input is gzip-compressed.
+
+If the inputs are gzip-compressed, the output will also be compressed.
 
 
-### Filtering pipeline
+### Advanced filtering script
 
 The package also includes a PERL script to filter a file based on the output of
 `suprDUPr.read_id`. For usage information, run:
@@ -43,11 +101,11 @@ to a file called filtered.fastq:
 
     $ ./suprDUPr.read_id data.fastq | ./filter-dups.pl data.fastq > filtered.fastq
 
-The filter-pe script can be used to filter  paired-end reads, but note that only
-the first file is considered for the purpose of identifying duplicates. This
-script will produce two new fastq files, with the prefix `filtered_`.
+Note that the file must be specified as an input to both suprDUPr.read_id and
+filter-dups.pl. The output is never compressed, but input files can be either
+uncompressed or gzip-compressed. To write a gzip-compressed output, use:
 
-    $ ./filter-pe.sh sample_R1.fastq sample_R2.fastq
+    $ ./suprDUPr.read_id data.fastq | ./filter-dups.pl data.fastq | gzip -c > filtered.fastq.gz
 
 
 ### Paired-end analysis
@@ -174,7 +232,7 @@ After installing dependencies, enter a scl subshell and compile it:
 
 
 
-### Model
+## Model
 
 Some statistical models were developed to estimate the effect of global duplicates
 on the estimate for local duplicates. For example, how many randomly positioned 
