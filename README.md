@@ -66,46 +66,41 @@ Process a file which is not sorted:
 
 ### Filtering pipeline (duplicate removal)
 
-The filter.sh script can be used to remove duplicates in single-read or paired-end reads.
+The `filter.sh` script can be used to remove duplicates in single-read or paired-end data.
 Note that only the first file (Read 1) is considered for the purpose of identifying 
-duplicates. It uses the `suprDUPr.read_id` program and a PERL script `filter-dups.pl`
+duplicates. It uses the `suprDUPr.read_id` program and a C++ program `filterfq`
 to perform the duplicate removal. `filter.sh` itself is mainly a wrapper program,
-which uses a named pipe to apply the same "read-ID" filtering to both sequence reads
+which uses a named pipe to apply the same "read-ID" filtering to both data files
 in case of paired-end data.
 
 Example:
 
-    $ ./filter.sh sample_R1.fastq sample_R2.fastq
+    $ ./filter.sh sample_R1.fastq sample_R2.fastq filtered_R1.fastq filtered_R2.fastq
 
 Produces files:
 
-    filtered_sample_R1.fastq    filtered_sample_R2.fastq
+    filtered_R1.fastq    filtered_R2.fastq
 
-The input of filter.sh must be a real file, not a pipe. It is read twice, by 
-`suprDUPr.read_id` and by `filter-dups.pl`. The overhead of reading in two streams
-should be low, due to caching. However, the decompression has to be done twice (at the
-same time) if the input is gzip-compressed.
+The input of `filter.sh` must be real files, not a pipe. The read-1 file is read twice in
+parallel, by `suprDUPr.read_id` and by `filterfq`.
 
-If the inputs are gzip-compressed, the output will also be compressed.
+If the inputs have extension ".gz", the input will be treated as compressed, and the
+output will also be compressed, regardless of its extension.
 
 
 ### Advanced filtering script
 
-The package also includes a PERL script to filter a file based on the output of
-`suprDUPr.read_id`. For usage information, run:
+The package includes a program to remove duplicates in a file based on the output of
+`suprDUPr.read_id`, called `filterfq`. This program is used by the above wrapper script
+`filter.sh`, but it can also be used directly.
 
-    ./filter-dups.pl
-
-This command outputs reads which are not "sequencinge duplicates" in data.fastq,
+The following command outputs reads which are not "sequencinge duplicates" in data.fastq,
 to a file called filtered.fastq:
 
-    $ ./suprDUPr.read_id data.fastq | ./filter-dups.pl data.fastq > filtered.fastq
+    $ ./suprDUPr.read_id data.fastq | ./filterfq data.fastq > filtered.fastq
 
 Note that the file must be specified as an input to both suprDUPr.read_id and
-filter-dups.pl. The output is never compressed, but input files can be either
-uncompressed or gzip-compressed. To write a gzip-compressed output, use:
-
-    $ ./suprDUPr.read_id data.fastq | ./filter-dups.pl data.fastq | gzip -c > filtered.fastq.gz
+filterfq.
 
 
 ### Paired-end analysis
@@ -127,7 +122,7 @@ counts paired-end duplicates:
 It will produce the normal suprDUPr output for both files, and then the last
 line of output contains the number of paired-end duplicates. If working with
 unsorted fastq files, you may have to swap the `sort` and `uniq` commands
-around.
+around, and add the --unsorted option to `suprDUPr.read_id`.
 
 
 ## How to compile the program
