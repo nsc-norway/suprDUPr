@@ -81,11 +81,14 @@ Produces files:
 
     filtered_R1.fastq    filtered_R2.fastq
 
-The input of `filter.sh` must be real files, not a pipe. The read-1 file is read twice in
-parallel, by `suprDUPr.read_id` and by `filterfq`.
+The input of `filter.sh` must be real files, not a pipe. The read 1 file is read twice in
+parallel, by `suprDUPr.read_id` and by `filterfq`. If the inputs have extension ".gz", the
+input will be treated as compressed, and the output will also be compressed, regardless of
+its extension.
 
-If the inputs have extension ".gz", the input will be treated as compressed, and the
-output will also be compressed, regardless of its extension.
+Process single-read data using the `-1` option: 
+
+    $ ./filter.sh -1 sample_R1.fastq filtered_R1.fastq
 
 
 ### Advanced filtering script
