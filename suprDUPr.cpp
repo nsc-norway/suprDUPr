@@ -8,8 +8,16 @@
 #include <forward_list>
 
 #include <boost/iostreams/filtering_stream.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
 #include <boost/program_options.hpp>
+
+// gzip compatibility: gzip from Boost 1.48 does not support block gzip format
+// (bgzf), so we include a local header file with support for it.
+#if BOOST_VERSION == 104800
+#include "gzip.hpp"
+#else
+#include <boost/iostreams/filter/gzip.hpp>
+#endif
+
 
 /*
  * suprDUPr - the duplicate detection tool
@@ -612,7 +620,6 @@ int main(int argc, char* argv[]) {
     ostream&output = *output_ptr;
 
     string header, sequence;
-
     getline(input, header);
     getline(input, sequence);
 
