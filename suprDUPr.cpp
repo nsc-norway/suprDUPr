@@ -69,8 +69,8 @@ public:
          * then shift them as appropriate.
          *
          * The 2-bit codes aren't stored in order, making it a bit more efficient
-         * to read them in 8-byte chunks. One can fit 4 2-bit nucleotides into the
-         * space of a single ASCII character (byte). The nucleotides are stored in
+         * to read them in 8-byte chunks. One can fit 4 2-bit base pairs into the
+         * space of a single ASCII character (byte). The data are stored in
          * an unique, but non-obvious order (order is irrelevant as long as equality
          * is preserved):
          * 1,9,17,25,2,10,18,26,3,11,19,27,.....,8,16,24,32
@@ -528,9 +528,9 @@ int main(int argc, char* argv[]) {
         ("winy,y", po::value<unsigned int>(&winy)->default_value(2500),
             "y coordinate window, +/- pixels")
         ("start,s", po::value<int>(&first_base)->default_value(10),
-            "First nucleotide position in reads to consider")
+            "First position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
-            "Last nucleotide position in reads to consider (use -1 for the end of the read)")
+            "Last position in reads to consider (use -1 for the end of the read)")
         ("region-sorted,r", po::bool_switch(&region_sorted),
             "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
             "within the region.")
@@ -617,19 +617,18 @@ int main(int argc, char* argv[]) {
     getline(input, sequence);
 
     size_t seq_len = sequence.size();
-    // Read index within the sequence string (i.e. nucleotide position)
+    // Read index within the sequence string (i.e. position)
     if (last_base == -1) last_base = seq_len;
     size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
 
-    cerr << "Using nucleotide positions from " << first_base << " to "
-         << first_base+str_len << endl;
+    cerr << "Using positions from " << first_base << " to " << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
     // All these versions of the analysis loop are compiled as separate 
     // function, but only one is used for a given set of input parameters.
     Metrics result;
     if (str_len > 160) {
-        cerr << "ERROR: Sorry, strings longer than 160 bytes are not supported "
+        cerr << "ERROR: Sorry, strings longer than 160 characters are not supported "
             << "(use parameters --start, --end)" << endl;
         return 1;
     }
