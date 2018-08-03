@@ -33,22 +33,6 @@ then
 	exit 1
 fi
 
-# Re-compress if outputs are compress, pipe through gzip
-if [[ "$r1output" == *.gz ]]
-then
-	outputfifo1=`mktemp -u`_outputfifo1
-	mkfifo $outputfifo1
-	gzip -c > "$r1output" < $outputfifo1 &
-	r1output=$outputfifo1
-fi
-if [[ "$r2output" == *.gz ]]
-then
-	outputfifo2=`mktemp -u`_outputfifo2
-	mkfifo $outputfifo2
-	gzip -c > "$r2output" < $outputfifo2 &
-	r2output=$outputfifo2
-fi
-
 if [[ -z "$1" ]]
 then
 	echo ""
@@ -59,16 +43,15 @@ then
 	exit 1
 fi
 
-
 if $single_read;
 then
 	./suprDUPr.read_id ${supr_args[*]} "$r1file" | ./filter-dups.pl "$r1file" > "$r1output"
 else
 	read_id_fifo=`mktemp -u`_readidfifo
 	mkfifo $read_id_fifo
-	./suprDUPr.read_id ${supr_args[*]} "$r1file" | tee $read_id_fifo | ./filter-dups.pl "$r1file" > "$r1output" &
-	./filter-dups.pl "$r2file" > "$r2output" < $read_id_fifo &
-	rm $read_id_fifo $outputfifo1 $outputfifo2
+	./suprDUPr.read_id ${supr_args[*]} "$r1file" | tee $read_id_fifo | ./filterfq "$r1file" > "$r1output" &
+	./filterfq "$r2file" > "$r2output" < $read_id_fifo &
 	wait
+	rm $read_id_fifo
 fi
 
