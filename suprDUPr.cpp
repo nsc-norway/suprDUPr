@@ -523,7 +523,7 @@ int main(int argc, char* argv[]) {
 
     // Main function: Reads arguments and calls analysisLoop
     
-    string inputfile("-"), outputfile("-");
+    string inputfile("-");
     unsigned int winx, winy;
     int first_base, last_base = -1;
     size_t hash_bytes;
@@ -553,8 +553,6 @@ int main(int argc, char* argv[]) {
     positionals.add_options()
         ("input-file", po::value<string>(&inputfile)->required(),
             "Input file, or - to read from STDIN")
-        ("output-file", po::value<string>(&outputfile),
-            "Output file, or - to write to STDOUT")
     ;
     po::options_description all_options("Allowed options");
     all_options.add(visible);
