@@ -271,6 +271,11 @@ class AnalysisHead {
         }
 };
 
+int get_coordinate_position() {
+    return 0;
+};
+
+
 // This returns a result signifying an error.
 Metrics error() {
     Metrics m;
@@ -410,7 +415,7 @@ Metrics analysisLoop(
             size_t num_read = input.gcount();
             // Ignore the quality header and quality, to the end of the record
             input.getline(dummybuf, MAX_LEN);
-            input.getline(dummybuf, MAX_LEN);
+            input.ignore(num_read);
 
             if (!unsorted) {
                 // If header prefix doesn't match the last one, signal "end of group" (tile)
@@ -632,46 +637,27 @@ int main(int argc, char* argv[]) {
     // All these versions of the analysis loop are compiled as separate 
     // function, but only one is used for a given set of input parameters.
     Metrics result;
-    if (str_len > 160) {
-        cerr << "ERROR: Sorry, strings longer than 160 characters are not supported "
+
+
+    if (str_len > 320) {
+        cerr << "ERROR: Sorry, strings longer than 320 characters are not supported "
             << "(use parameters --start, --end)" << endl;
         return 1;
     }
-    else if (str_len > 128) {
-        result = analysisLoop<TwoBitSequence<5>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 96) {
-        result = analysisLoop<TwoBitSequence<4>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 64) {
-        result = analysisLoop<TwoBitSequence<3>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 32) {
-        result = analysisLoop<TwoBitSequence<2>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 0) {
-        result = analysisLoop<TwoBitSequence<1>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
+#define callAnalysisLoop(size) result = analysisLoop<TwoBitSequence<size>>(\
+                output, hash_bytes, first_base, str_len, winx, winy, region_sorted,\
+                unsorted, input, input2, header, sequence\
+                )
+    else if (str_len > 288) callAnalysisLoop(10);
+    else if (str_len > 256) callAnalysisLoop(9);
+    else if (str_len > 224) callAnalysisLoop(8);
+    else if (str_len > 192) callAnalysisLoop(7);
+    else if (str_len > 160) callAnalysisLoop(6);
+    else if (str_len > 128) callAnalysisLoop(5);
+    else if (str_len > 96) callAnalysisLoop(4);
+    else if (str_len > 64) callAnalysisLoop(3);
+    else if (str_len > 32) callAnalysisLoop(2);
+    else if (str_len > 0) callAnalysisLoop(1);
     else {
         cerr << "ERROR: Zero length sequence to compare. Perhaps the format of "
             << "the file was not understood."<< endl;
