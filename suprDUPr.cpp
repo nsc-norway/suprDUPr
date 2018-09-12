@@ -322,6 +322,17 @@ string peek_line(istream& test) {
     return ""; // TODO DUMMY FUNCTIOn
 }
 
+size_t readLineGetCount(istream& stream, char* buffer, size_t max_size) {
+    stream.getline(buffer, max_size);
+    if (stream) {
+        return stream.gcount();
+    }
+    else {
+        return -1;
+    }
+}
+
+
 /*
  * Function analysisLoop is called by main program to run the actual analysis.
  *
@@ -334,26 +345,26 @@ string peek_line(istream& test) {
 template <typename VALUE>
 Metrics analysisLoop(
         ostream& output,
-        size_t hash_bytes, size_t str_start, size_t str_len,
+        size_t hash_bytes, size_t str_start, size_t str_len_per_read,
         int winx, int winy, bool region_sorted, bool unsorted,
-        istream& input, istream& input2) {
+        istream& input1, istream* input2) {
 
-    string header1 = peek_line(input), header2 = peek_line(input2);
-    if (!input) {
-        cerr << "Error: Unable to read from the input file (read 1)" << endl;
+    string header1 = peek_line(input1), header2 = peek_line(*input2);
+    if (!input1) {
+        cerr << "ERROR: Unable to read from the input file (read 1)" << endl;
         return error();
     }
-    if (!input2) {
-        cerr << "Error: Unable to read from the input file (read 2)" << endl;
+    if (!*input2) {
+        cerr << "ERROR: Unable to read from the input file (read 2)" << endl;
         return error();
     }
     HeaderFormat hf(header1); // TODO
     if (!hf.valid) {
-        cerr << "Error: Illumina format x/y coordinates not detected" << endl;
+        cerr << "ERROR: Illumina format x/y coordinates not detected" << endl;
         return error();
     }
     if (!(HeaderFormat(header2) == hf)) {
-        cerr << "Error: The headers for read 1 and read 2 are not the same" << endl;
+        cerr << "ERROR: The headers for read 1 and read 2 are not the same" << endl;
     }
 
     // Group (region) counter, incremented every time the prefix of the read
@@ -368,26 +379,21 @@ Metrics analysisLoop(
     typename VALUE::SequenceBuffer sequence_buf;
     memset(&sequence_buf, 0, sizeof(sequence_buf));
     // Pointer to read sequence data
-    char* linebuf = &sequence_buf.char_data - str_start;
+    char* databuffer1 = new char[MAX_LEN];
+    char* databuffer2 = new char[MAX_LEN];
     char* headerbuf = new char[MAX_LEN];
     char* dummybuf = new char[MAX_LEN];
 
     char read_id[hf.start_to_coord_offset] = {};
 
-    // Need to zero the rest of the string after reading, if it does not fit exactly
-    // into the data array. The unused part of data must be zero for TwoBitSequence to
-    // work.
-    char* zero_start = (&sequence_buf.char_data) + str_len;
-    size_t zero_num = sizeof(sequence_buf.data) - str_len;
-
     AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy, region_sorted, unsorted);
 
     cerr << "Started reading FASTQ file..." << endl;
 
-    while (input) { // Input loop
-        input.getline(headerbuf, MAX_LEN);
+    while (input1) { // Input loop
+        size_t header_len = readLineGetCount(input1, headerbuf, MAX_LEN);
 
-        if (!input) break;
+        if (!input1) break;
 
         // Read the coordinates, then ignore the rest of the header line
         char* ptr;
@@ -404,14 +410,30 @@ Metrics analysisLoop(
             return error();
         }
 
-        // Read sequence string
-        input.getline(linebuf, MAX_LEN);
+        // Read sequence string, get number of characters read including end of line
+        size_t num_read = readLineGetCount(input1, databuffer1, MAX_LEN);
 
-        // Number of characters read including end of line
-        size_t num_read = input.gcount();
         // Ignore the quality header and quality, to the end of the record
-        input.getline(dummybuf, MAX_LEN);
-        input.ignore(num_read); // TODO check
+        size_t num_qheader = readLineGetCount(input1, dummybuf, MAX_LEN);
+        input1.ignore(num_read);
+
+        if (input2) { // Note: check pointer not zero => PE enabled
+            bool pe_fail = true;
+            if (readLineGetCount(*input2, dummybuf, MAX_LEN) != header_len) {
+                cerr << "ERROR: PE reads do not have the same length" << endl;
+            }
+            else if (readLineGetCount(*input2, databuffer2, MAX_LEN) != num_read) {
+                cerr << "ERROR: PE reads do not have the same length" << endl;
+            }
+            else if (readLineGetCount(*input2, dummybuf, MAX_LEN) != num_qheader) {
+                cerr << "ERROR: PE reads do not have the same length" << endl;
+            }
+            else {
+                pe_fail = false;
+                input2->ignore(num_read);
+            }
+            if (pe_fail) return error();
+        }
 
         if (!unsorted) {
             // If header prefix doesn't match the last one, signal "end of group" (tile)
@@ -438,9 +460,13 @@ Metrics analysisLoop(
         }
         prev_y = y;
 
-        if (num_read >= 1 + str_len + str_start) {
-            for (int bp=0; bp<zero_num; ++bp) zero_start[bp] = 0;
-            // Use ID string up to after the y coordinate, so we null-terminate it
+        if (num_read >= 1 + str_len_per_read + str_start) {
+            for (int i=0; i<str_len_per_read; ++i) sequence_buf.data[i] = databuffer1[i+str_start];
+            if (input2) {
+                for (int i=0; i<str_len_per_read; ++i)
+                    sequence_buf.data[i+str_len_per_read] = databuffer2[i+str_start];
+            }
+
 #ifdef OUTPUT_READ_ID
             size_t id_len = ptr - headerbuf - 1;
             analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, sequence_buf.data);
@@ -560,7 +586,6 @@ int main(int argc, char* argv[]) {
 
     po::positional_options_description pos_desc;
     pos_desc.add("input-file", 1);
-    pos_desc.add("output-file", 1);
 
     po::variables_map vm;
     try {
@@ -617,36 +642,48 @@ int main(int argc, char* argv[]) {
     istream&input = *isel.input;
     ostream&output = *output_ptr;
 
-    size_t str_len = (size_t)(last_base - first_base);
+    size_t str_len_per_read = (size_t)(last_base - first_base);
 
-    cerr << "Using positions from " << first_base << " to " << first_base+str_len << endl;
 
     // Call the correct analysis loop for the specified string length
     // All these versions of the analysis loop are compiled as separate 
     // function, but only one is used for a given set of input parameters.
     Metrics result;
-    istream & input2 = input; // TODO PE! (dummy variable to make it compile)
+    istream* input2 = &input; // TODO PE! (dummy variable to make it compile)
+
+    size_t total_str_len;
+    if (input2) {
+        total_str_len = str_len_per_read*2;
+        cerr << "Using positions from " << first_base << " to "
+             << first_base+str_len_per_read << " in each of read 1 "
+             << "and read 2." << endl;
+    }
+    else {
+        cerr << "Using positions from " << first_base << " to "
+             << first_base+str_len_per_read << endl;
+        total_str_len = str_len_per_read;
+    }
 
 
-    if (str_len > 320) {
-        cerr << "ERROR: Sorry, strings longer than 320 characters are not supported "
-            << "(use parameters --start, --end)" << endl;
+    if (total_str_len > 320) {
+        cerr << "ERROR: Sorry, strings longer than 320 characters, or 160 for PE "
+            << "data, are not supported (check parameters --start, --end)" << endl;
         return 1;
     }
 #define callAnalysisLoop(size) result = analysisLoop<TwoBitSequence<size>>(\
-                output, hash_bytes, first_base, str_len, winx, winy, region_sorted,\
-                unsorted, input, input2\
+                output, hash_bytes, first_base, str_len_per_read, winx, winy,\
+                region_sorted, unsorted, input, input2\
                 )
-    else if (str_len > 288) callAnalysisLoop(10);
-    else if (str_len > 256) callAnalysisLoop(9);
-    else if (str_len > 224) callAnalysisLoop(8);
-    else if (str_len > 192) callAnalysisLoop(7);
-    else if (str_len > 160) callAnalysisLoop(6);
-    else if (str_len > 128) callAnalysisLoop(5);
-    else if (str_len > 96) callAnalysisLoop(4);
-    else if (str_len > 64) callAnalysisLoop(3);
-    else if (str_len > 32) callAnalysisLoop(2);
-    else if (str_len > 0) callAnalysisLoop(1);
+    else if (total_str_len > 288) callAnalysisLoop(10);
+    else if (total_str_len > 256) callAnalysisLoop(9);
+    else if (total_str_len > 224) callAnalysisLoop(8);
+    else if (total_str_len > 192) callAnalysisLoop(7);
+    else if (total_str_len > 160) callAnalysisLoop(6);
+    else if (total_str_len > 128) callAnalysisLoop(5);
+    else if (total_str_len > 96) callAnalysisLoop(4);
+    else if (total_str_len > 64) callAnalysisLoop(3);
+    else if (total_str_len > 32) callAnalysisLoop(2);
+    else if (total_str_len > 0) callAnalysisLoop(1);
     else {
         cerr << "ERROR: Zero length sequence to compare. Perhaps the format of "
             << "the file was not understood."<< endl;
