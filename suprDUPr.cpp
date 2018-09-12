@@ -288,12 +288,13 @@ class HeaderFormat {
 
 public:
     bool valid;
+    size_t start_to_coord_offset = 0;
     HeaderFormat(const string& header) {
 
         // Determine the header format. In Illumina format, the x coordinate
         // is after the fifth colon and the y coordinate after the sixth 
         // colon up to a space.
-        size_t start_to_coord_offset = 0, start_to_y_coord_offset = 0;
+        size_t start_to_y_coord_offset = 0;
         size_t colons = 0, end_coords = 0; // temporary variables
         size_t i;
         for (i=0; i<header.size(); ++i) {
@@ -310,6 +311,11 @@ public:
             end_coords = i;
         valid = (colons >= 6);
     }
+
+    bool operator ==(const HeaderFormat& other) {
+        return start_to_coord_offset == other.start_to_coord_offset &&
+                valid == other.valid;
+     }
 };
 
 string peek_line(istream& test) {
@@ -330,12 +336,24 @@ Metrics analysisLoop(
         ostream& output,
         size_t hash_bytes, size_t str_start, size_t str_len,
         int winx, int winy, bool region_sorted, bool unsorted,
-        istream& input) {
+        istream& input, istream& input2) {
 
-    HeaderFormat hf(peek_line(input)); // TODO
-    if (!hf.valid) {
-        cerr << "Illumina format x/y coordinates not detected" << endl;
+    string header1 = peek_line(input), header2 = peek_line(input2);
+    if (!input) {
+        cerr << "Error: Unable to read from the input file (read 1)" << endl;
         return error();
+    }
+    if (!input2) {
+        cerr << "Error: Unable to read from the input file (read 2)" << endl;
+        return error();
+    }
+    HeaderFormat hf(header1); // TODO
+    if (!hf.valid) {
+        cerr << "Error: Illumina format x/y coordinates not detected" << endl;
+        return error();
+    }
+    if (!(HeaderFormat(header2) == hf)) {
+        cerr << "Error: The headers for read 1 and read 2 are not the same" << endl;
     }
 
     // Group (region) counter, incremented every time the prefix of the read
@@ -354,6 +372,8 @@ Metrics analysisLoop(
     char* headerbuf = new char[MAX_LEN];
     char* dummybuf = new char[MAX_LEN];
 
+    char read_id[hf.start_to_coord_offset] = {};
+
     // Need to zero the rest of the string after reading, if it does not fit exactly
     // into the data array. The unused part of data must be zero for TwoBitSequence to
     // work.
@@ -371,7 +391,7 @@ Metrics analysisLoop(
 
         // Read the coordinates, then ignore the rest of the header line
         char* ptr;
-        x = strtol(headerbuf+start_to_coord_offset, &ptr, 10);
+        x = strtol(headerbuf+hf.start_to_coord_offset, &ptr, 10);
         if (*ptr != ':') {
             cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
                  << "and the header must be the standard Illumina header." << endl;
@@ -395,9 +415,9 @@ Metrics analysisLoop(
 
         if (!unsorted) {
             // If header prefix doesn't match the last one, signal "end of group" (tile)
-            if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
+            if (memcmp(headerbuf, read_id, hf.start_to_coord_offset) != 0) {
                 group++;
-                memcpy(read_id, headerbuf, start_to_coord_offset);
+                memcpy(read_id, headerbuf, hf.start_to_coord_offset);
                 prev_y = 0;
             }
             else if (!region_sorted && y < prev_y) {
@@ -407,7 +427,7 @@ Metrics analysisLoop(
             }
         }
         else {
-            const string id_str(headerbuf, start_to_coord_offset);
+            const string id_str(headerbuf, hf.start_to_coord_offset);
             map<string, int>::iterator location = unsorted_mode_group.find(id_str);
             if (location == unsorted_mode_group.end()) {
                 unsorted_mode_group[id_str] = group = ++unsorted_mode_group_counter; 
@@ -605,6 +625,7 @@ int main(int argc, char* argv[]) {
     // All these versions of the analysis loop are compiled as separate 
     // function, but only one is used for a given set of input parameters.
     Metrics result;
+    istream & input2 = input; // TODO PE! (dummy variable to make it compile)
 
 
     if (str_len > 320) {
@@ -614,7 +635,7 @@ int main(int argc, char* argv[]) {
     }
 #define callAnalysisLoop(size) result = analysisLoop<TwoBitSequence<size>>(\
                 output, hash_bytes, first_base, str_len, winx, winy, region_sorted,\
-                unsorted, input, input2, header, sequence\
+                unsorted, input, input2\
                 )
     else if (str_len > 288) callAnalysisLoop(10);
     else if (str_len > 256) callAnalysisLoop(9);
