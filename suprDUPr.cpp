@@ -278,6 +278,15 @@ Metrics error() {
     return m;
 }
 
+
+class HeaderFormat {
+}
+
+HeaderFormat getHeaderFormat(istream& data) {
+    string sequence = peek_line(data); // TODO
+
+}
+
 /*
  * Function analysisLoop is called by main program to run the actual analysis.
  *
@@ -538,7 +547,7 @@ int main(int argc, char* argv[]) {
         ("start,s", po::value<int>(&first_base)->default_value(10),
             "First position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
-            "Last position in reads to consider (use -1 for the end of the read)")
+            "Last position in reads to consider")
         ("region-sorted,r", po::bool_switch(&region_sorted),
             "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
             "within the region.")
@@ -619,14 +628,7 @@ int main(int argc, char* argv[]) {
     istream&input = *isel.input;
     ostream&output = *output_ptr;
 
-    string header, sequence;
-    getline(input, header);
-    getline(input, sequence);
-
-    size_t seq_len = sequence.size();
-    // Read index within the sequence string (i.e. position)
-    if (last_base == -1) last_base = seq_len;
-    size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
+    size_t str_len = (size_t)(last_base - first_base);
 
     cerr << "Using positions from " << first_base << " to " << first_base+str_len << endl;
 
