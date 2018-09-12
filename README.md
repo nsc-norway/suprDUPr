@@ -5,6 +5,15 @@ Tool for identifying duplicates reads in close physical proximity on patterned I
 The tool is designed to analyse FASTQ files with un-trimmed reads, in the format output by BCL
 conversion software (e.g. bcl2fastq).
 
+## News
+
+  - Version 1.1: Introduces native support for analysing both reads of paired-
+                 end data. Because two command-line arguments are needed to 
+                 specify the input files, it is no longer possible to specify
+                 an output file on the command line. Instead it is recommended
+                 to redirect STDOUT to a file using other methods.
+
+
 ## Programs and pipelines
 
 ### Description
@@ -13,18 +22,15 @@ conversion software (e.g. bcl2fastq).
     fastq file (optionally gzip compressed), and computes the fraction
     of reads which are "local" duplicates.
   - A seconary program is `suprDUPr.read_id`. It outputs part of the FASTQ
-    header for all reads identified as duplicates.
+    headers for pairs of reads identified as duplicates.
   - See the scripts below for more functionality.
-
-The main programs only operate on single FASTQ files, but they can be combined
-with other Unix command-line tools to process paired-end data.
 
 
 ### Main program usage
 
 The options for `suprDUPr` and `suprDUPr.read_id` are the same.
 
-    usage: ./suprDUPr [options] input_file [output_file*]
+    usage: ./suprDUPr [options] input_file_r1 [input_file_r2]
     Allowed options:
       -x [ --winx ] arg (=2500)  x coordinate window, +/- pixels
       -y [ --winy ] arg (=2500)  y coordinate window, +/- pixels
@@ -43,9 +49,14 @@ The options for `suprDUPr` and `suprDUPr.read_id` are the same.
     
       Specify - for input_file to read from stdin.
 
+IF two files are provided on the command line, they are assumed to be from paired-end
+sequencing. Then the same substring is always used in both reads, and `-s` and `-e`
+specify the positions to use in both reads.
 
-* Note that `output_file` option is deprecated and will be removed. You may use a shell
-redirection instead, to save the output in a file.
+There was previously an option for output filename instead of `input_file_r2`.
+**If you are going to analyse PE data, make sure that the suprDUPr version is
+greater or equal to 1.1, or it may instantly overwrite your second FASTQ file,
+as an output file.**
 
 
 ### Basic examples
@@ -66,6 +77,11 @@ in this region:
 Process a file which is not sorted:
 
     $ suprDUPr --unsorted data.fastq
+
+### Example output
+
+    HELLO WORD
+
 
 
 ### Filtering pipeline (duplicate removal)
@@ -116,17 +132,11 @@ same sequence in read one, but a different insert size. These fragments are
 not caused by "sequencing-related" effects, such as ExAmp -- instead they are
 genuinely different reads.
 
-It is possible to use common Unix commands, and the suprDUPr.read_id program,
-to count only reads which are duplicates in both read 1 and read 2.
-Assuming we have two files, R1.fastq and R2.fastq, the following command
-counts paired-end duplicates:
-
-    comm -12 <( ./suprDUPr.read_id R1.fastq | cut -f1 | uniq | sort ) <( ./suprDUPr.read_id R2.fastq | cut -f1 | uniq | sort ) | wc -l
-
-It will produce the normal suprDUPr output for both files, and then the last
-line of output contains the number of paired-end duplicates. If working with
-unsorted fastq files, you may have to swap the `sort` and `uniq` commands
-around, and add the --unsorted option to `suprDUPr.read_id`.
+It used to be possible to analyse PE data using `suprDUPr.read_id` and standard
+UNIX shell commands. As suprDUPr now has native PE support, this approach is no
+longer needed. Keep in mind, however, that a shorter matching string length per
+read (start/end position) may be in beneficial, as the effective matching string
+is twice as long when running on PE data.
 
 
 ## How to compile the program

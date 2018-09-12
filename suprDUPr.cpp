@@ -630,7 +630,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    cerr << "-- suprDUPr v1.0 --\n";
+    cerr << "-- suprDUPr v1.1 --\n";
 
     ostream* output_ptr = &cout;
     ofstream output_file;
