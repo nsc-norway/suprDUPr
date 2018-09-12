@@ -283,6 +283,39 @@ Metrics error() {
     return m;
 }
 
+
+class HeaderFormat {
+
+public:
+    bool valid;
+    HeaderFormat(const string& header) {
+
+        // Determine the header format. In Illumina format, the x coordinate
+        // is after the fifth colon and the y coordinate after the sixth 
+        // colon up to a space.
+        size_t start_to_coord_offset = 0, start_to_y_coord_offset = 0;
+        size_t colons = 0, end_coords = 0; // temporary variables
+        size_t i;
+        for (i=0; i<header.size(); ++i) {
+            if (header[i] == ':') {
+                ++colons;
+                if (colons == 5) start_to_coord_offset = i+1;
+                if (colons == 6) start_to_y_coord_offset = i+1;
+            }
+            else if (header[i] == ' ') {
+                end_coords = i;
+            }
+        }
+        if (end_coords == 0)
+            end_coords = i;
+        valid = (colons >= 6);
+    }
+};
+
+string peek_line(istream& test) {
+    return ""; // TODO DUMMY FUNCTIOn
+}
+
 /*
  * Function analysisLoop is called by main program to run the actual analysis.
  *
@@ -297,56 +330,21 @@ Metrics analysisLoop(
         ostream& output,
         size_t hash_bytes, size_t str_start, size_t str_len,
         int winx, int winy, bool region_sorted, bool unsorted,
-        istream& input, const string& header, const string& sequence
-        ) {
+        istream& input) {
 
-
-    // Do some more work to determine the header format. In Illumina format, the 
-    // x coordinate is after the fifth colon and the y coordinate after the sixth 
-    // colon up to a space.
-    size_t start_to_coord_offset = 0, start_to_y_coord_offset = 0;
-    size_t colons = 0, end_coords = 0; // temporary variables
-    size_t i;
-    for (i=0; i<header.size(); ++i) {
-        if (header[i] == ':') {
-            ++colons;
-            if (colons == 5) start_to_coord_offset = i+1;
-            if (colons == 6) start_to_y_coord_offset = i+1;
-        }
-        else if (header[i] == ' ') {
-            end_coords = i;
-        }
-    }
-    if (end_coords == 0)
-        end_coords = i;
-    if (colons < 6) {
+    HeaderFormat hf(peek_line(input)); // TODO
+    if (!hf.valid) {
         cerr << "Illumina format x/y coordinates not detected" << endl;
         return error();
     }
 
-    // Parse the x/y of the first entry in a special way, because we have already
-    // read the lines into memory.
-    int x, y;
-    x = atoi(header.c_str() + start_to_coord_offset);
-    y = atoi(header.c_str() + start_to_y_coord_offset);
-
     // Group (region) counter, incremented every time the prefix of the read
     // identifier, the string before the x and y coordinates, changes. In
-    // unsorted mode, this must be different than 0, as 0 indicates an unknown
+    // unsorted mode, this must be different from 0, as 0 indicates an unknown
     // group.
-    int group = 1, unsorted_mode_group_counter = 1;
+    int unsorted_mode_group_counter = 0, group = 0;
     map<string, int> unsorted_mode_group;
-    int prev_y = 0;
-
-    size_t seq_len = sequence.size();
-    if (seq_len >= MAX_LEN) {
-        cerr << "Sequence is too long, max supported is: " << MAX_LEN << "." << endl;
-        return error();
-    }
-
-    // Read identifier prefix (before coordinates)
-    char read_id[start_to_coord_offset];
-    memcpy(read_id, &header[0], start_to_coord_offset);
+    int x, y, prev_y = 0;
 
     // Sequence buffer
     typename VALUE::SequenceBuffer sequence_buf;
@@ -355,7 +353,6 @@ Metrics analysisLoop(
     char* linebuf = &sequence_buf.char_data - str_start;
     char* headerbuf = new char[MAX_LEN];
     char* dummybuf = new char[MAX_LEN];
-    sequence.copy(&sequence_buf.char_data, str_len, str_start);
 
     // Need to zero the rest of the string after reading, if it does not fit exactly
     // into the data array. The unused part of data must be zero for TwoBitSequence to
@@ -363,100 +360,78 @@ Metrics analysisLoop(
     char* zero_start = (&sequence_buf.char_data) + str_len;
     size_t zero_num = sizeof(sequence_buf.data) - str_len;
 
-    // We also accept a header between sequence and quality, doesn't need to be just
-    // "+". For example, some files from SRA have this.
-    string middle_header;
-    getline(input, middle_header);
-
-    if (middle_header.size() == 0 || middle_header[0] != '+') {
-        cerr << "The line after the sequence doesn't conform to the expected " 
-            << "format." << endl;
-        return error();
-    }
-
-    input.ignore(1 + seq_len); // Ignores quality scores and \n
-
     AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy, region_sorted, unsorted);
 
     cerr << "Started reading FASTQ file..." << endl;
 
-    if (input) {
-#ifdef OUTPUT_READ_ID
-        analysisHead.enterPoint(group, x, y, header.c_str() + 1, end_coords, sequence_buf.data);
-#else
-        analysisHead.enterPoint(group, x, y, sequence_buf.data);
-#endif
-        // This is used only for unordered mode
-        unsorted_mode_group[string(header, start_to_coord_offset)] = group;
-        while (input) { // Input loop
-            input.getline(headerbuf, MAX_LEN);
+    while (input) { // Input loop
+        input.getline(headerbuf, MAX_LEN);
 
-            if (!input) break;
+        if (!input) break;
 
-            // Read the coordinates, then ignore the rest of the header line
-            char* ptr;
-            x = strtol(headerbuf+start_to_coord_offset, &ptr, 10);
-            if (*ptr != ':') {
-                cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
-                     << "and the header must be the standard Illumina header." << endl;
-                return error();
+        // Read the coordinates, then ignore the rest of the header line
+        char* ptr;
+        x = strtol(headerbuf+start_to_coord_offset, &ptr, 10);
+        if (*ptr != ':') {
+            cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
+                 << "and the header must be the standard Illumina header." << endl;
+            return error();
+        }
+        y = strtol(ptr+1, &ptr, 10);
+        if (*ptr != ' ' && *ptr != '\0') {
+            cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
+                 << "and the header must be the standard Illumina header." << endl;
+            return error();
+        }
+
+        // Read sequence string
+        input.getline(linebuf, MAX_LEN);
+
+        // Number of characters read including end of line
+        size_t num_read = input.gcount();
+        // Ignore the quality header and quality, to the end of the record
+        input.getline(dummybuf, MAX_LEN);
+        input.ignore(num_read); // TODO check
+
+        if (!unsorted) {
+            // If header prefix doesn't match the last one, signal "end of group" (tile)
+            if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
+                group++;
+                memcpy(read_id, headerbuf, start_to_coord_offset);
+                prev_y = 0;
             }
-            y = strtol(ptr+1, &ptr, 10);
-            if (*ptr != ' ' && *ptr != '\0') {
-                cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
-                     << "and the header must be the standard Illumina header." << endl;
-                return error();
+            else if (!region_sorted && y < prev_y) {
+                    cerr << "ERROR: The file is not sorted according to y-coordinate. See "
+                         << "options --region-sorted or --unsorted." << endl;
+                    return error();
             }
-
-            // Read sequence string
-            input.getline(linebuf, MAX_LEN);
-
-            // Number of characters read including end of line
-            size_t num_read = input.gcount();
-            // Ignore the quality header and quality, to the end of the record
-            input.getline(dummybuf, MAX_LEN);
-            input.ignore(num_read);
-
-            if (!unsorted) {
-                // If header prefix doesn't match the last one, signal "end of group" (tile)
-                if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
-                    group++;
-                    memcpy(read_id, headerbuf, start_to_coord_offset);
-                    prev_y = 0;
-                }
-                else if (!region_sorted && y < prev_y) {
-                        cerr << "ERROR: The file is not sorted according to y-coordinate. See "
-                             << "options --region-sorted or --unsorted." << endl;
-                        return error();
-                }
+        }
+        else {
+            const string id_str(headerbuf, start_to_coord_offset);
+            map<string, int>::iterator location = unsorted_mode_group.find(id_str);
+            if (location == unsorted_mode_group.end()) {
+                unsorted_mode_group[id_str] = group = ++unsorted_mode_group_counter; 
             }
             else {
-                const string id_str(headerbuf, start_to_coord_offset);
-                map<string, int>::iterator location = unsorted_mode_group.find(id_str);
-                if (location == unsorted_mode_group.end()) {
-                    unsorted_mode_group[id_str] = group = ++unsorted_mode_group_counter; 
-                }
-                else {
-                    group = location->second;
-                }
+                group = location->second;
             }
-            prev_y = y;
-
-            if (num_read >= 1 + str_len + str_start) {
-                for (int bp=0; bp<zero_num; ++bp) zero_start[bp] = 0;
-                // Use ID string up to after the y coordinate, so we null-terminate it
-#ifdef OUTPUT_READ_ID
-                size_t id_len = ptr - headerbuf - 1;
-                analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, sequence_buf.data);
-#else
-                analysisHead.enterPoint(group, x, y, sequence_buf.data);
-#endif
-            }
-
-            if (analysisHead.metrics.num_reads % 1000000 == 0)
-                cerr << "Analysed " << setw(9) << analysisHead.metrics.num_reads
-                    << " reads." << endl;
         }
+        prev_y = y;
+
+        if (num_read >= 1 + str_len + str_start) {
+            for (int bp=0; bp<zero_num; ++bp) zero_start[bp] = 0;
+            // Use ID string up to after the y coordinate, so we null-terminate it
+#ifdef OUTPUT_READ_ID
+            size_t id_len = ptr - headerbuf - 1;
+            analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, sequence_buf.data);
+#else
+            analysisHead.enterPoint(group, x, y, sequence_buf.data);
+#endif
+        }
+
+        if (analysisHead.metrics.num_reads % 1000000 == 0)
+            cerr << "Analysed " << setw(9) << analysisHead.metrics.num_reads
+                << " reads." << endl;
     }
     return analysisHead.metrics;
 }
@@ -543,7 +518,7 @@ int main(int argc, char* argv[]) {
         ("start,s", po::value<int>(&first_base)->default_value(10),
             "First position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
-            "Last position in reads to consider (use -1 for the end of the read)")
+            "Last position in reads to consider")
         ("region-sorted,r", po::bool_switch(&region_sorted),
             "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
             "within the region.")
@@ -622,14 +597,7 @@ int main(int argc, char* argv[]) {
     istream&input = *isel.input;
     ostream&output = *output_ptr;
 
-    string header, sequence;
-    getline(input, header);
-    getline(input, sequence);
-
-    size_t seq_len = sequence.size();
-    // Read index within the sequence string (i.e. position)
-    if (last_base == -1) last_base = seq_len;
-    size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
+    size_t str_len = (size_t)(last_base - first_base);
 
     cerr << "Using positions from " << first_base << " to " << first_base+str_len << endl;
 
