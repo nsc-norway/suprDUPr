@@ -24,7 +24,7 @@ with other Unix command-line tools to process paired-end data.
 
 The options for `suprDUPr` and `suprDUPr.read_id` are the same.
 
-    usage: ./suprDUPr [options] input_file [output_file*]
+    usage: ./suprDUPr [options] input_file
     Allowed options:
       -x [ --winx ] arg (=2500)  x coordinate window, +/- pixels
       -y [ --winy ] arg (=2500)  y coordinate window, +/- pixels
@@ -43,9 +43,6 @@ The options for `suprDUPr` and `suprDUPr.read_id` are the same.
     
       Specify - for input_file to read from stdin.
 
-
-* Note that `output_file` option is deprecated and will be removed. You may use a shell
-redirection instead, to save the output in a file.
 
 
 ### Basic examples
