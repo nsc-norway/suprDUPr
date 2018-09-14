@@ -318,11 +318,7 @@ public:
      }
 };
 
-string peek_line(istream& test) {
-    return ""; // TODO DUMMY FUNCTIOn
-}
-
-size_t readLineGetCount(istream& stream, char* buffer, size_t max_size) {
+long readLineGetCount(istream& stream, char* buffer, size_t max_size) {
     stream.getline(buffer, max_size);
     if (stream) {
         return stream.gcount();
@@ -349,22 +345,29 @@ Metrics analysisLoop(
         int winx, int winy, bool region_sorted, bool unsorted,
         istream& input1, istream* input2) {
 
-    string header1 = peek_line(input1), header2 = peek_line(*input2);
-    if (!input1) {
+    char* headerbuf = new char[MAX_LEN];
+    char* dummybuf = new char[MAX_LEN];
+
+    long header_len = readLineGetCount(input1, headerbuf, MAX_LEN);
+    if (header_len == -1) {
         cerr << "ERROR: Unable to read from the input file (read 1)" << endl;
         return error();
     }
-    if (!*input2) {
-        cerr << "ERROR: Unable to read from the input file (read 2)" << endl;
-        return error();
+    if (input2) {
+        long header_r2_len = readLineGetCount(*input2, dummybuf, MAX_LEN);
+        if (header_r2_len == -1) {
+            cerr << "ERROR: Unable to read from the input file (read 2)" << endl;
+            return error();
+        }
+        else if (header_r2_len != header_len || memcmp(headerbuf, dummybuf, header_len) != 0) {
+            cerr << "ERROR: Header in read 2 is different from header in read 1." << endl;
+            return error();
+        }
     }
-    HeaderFormat hf(header1); // TODO
+    HeaderFormat hf(string(headerbuf, header_len));
     if (!hf.valid) {
         cerr << "ERROR: Illumina format x/y coordinates not detected" << endl;
         return error();
-    }
-    if (!(HeaderFormat(header2) == hf)) {
-        cerr << "ERROR: The headers for read 1 and read 2 are not the same" << endl;
     }
 
     // Group (region) counter, incremented every time the prefix of the read
@@ -381,17 +384,20 @@ Metrics analysisLoop(
     // Pointer to read sequence data
     char* databuffer1 = new char[MAX_LEN];
     char* databuffer2 = new char[MAX_LEN];
-    char* headerbuf = new char[MAX_LEN];
-    char* dummybuf = new char[MAX_LEN];
 
-    char read_id[hf.start_to_coord_offset] = {};
+    char read_id[hf.start_to_coord_offset];
+    memset(read_id, 0, sizeof(read_id));
 
     AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy, region_sorted, unsorted);
 
     cerr << "Started reading FASTQ file..." << endl;
 
+    bool first = true;
+
     while (input1) { // Input loop
-        size_t header_len = readLineGetCount(input1, headerbuf, MAX_LEN);
+
+        if (!first)
+            header_len = readLineGetCount(input1, headerbuf, MAX_LEN);
 
         if (!input1) break;
 
@@ -419,7 +425,7 @@ Metrics analysisLoop(
 
         if (input2) { // Note: check pointer not zero => PE enabled
             bool pe_fail = true;
-            if (readLineGetCount(*input2, dummybuf, MAX_LEN) != header_len) {
+            if (!first && readLineGetCount(*input2, dummybuf, MAX_LEN) != header_len) {
                 cerr << "ERROR: PE reads do not have the same length" << endl;
             }
             else if (readLineGetCount(*input2, databuffer2, MAX_LEN) != num_read) {
@@ -475,6 +481,8 @@ Metrics analysisLoop(
 #endif
         }
 
+        first = false;
+
         if (analysisHead.metrics.num_reads % 1000000 == 0)
             cerr << "Analysed " << setw(9) << analysisHead.metrics.num_reads
                 << " reads." << endl;
@@ -487,7 +495,7 @@ Metrics analysisLoop(
 // Input paramters, opening I/O streams, etc.
 
 void printUsage(const char* program_name) {
-    cerr << "usage: " << program_name << " [options] input_file [output_file] \n";
+    cerr << "usage: " << program_name << " [options] input_file_r1 [input_file_r2] \n";
 }
 
 class InputSelector {
@@ -549,7 +557,7 @@ int main(int argc, char* argv[]) {
 
     // Main function: Reads arguments and calls analysisLoop
     
-    string inputfile("-");
+    string inputfile1, inputfile2;
     unsigned int winx, winy;
     int first_base, last_base = -1;
     size_t hash_bytes;
@@ -577,15 +585,18 @@ int main(int argc, char* argv[]) {
     ;
     po::options_description positionals("Positional options(hidden)");
     positionals.add_options()
-        ("input-file", po::value<string>(&inputfile)->required(),
-            "Input file, or - to read from STDIN")
+        ("input-file-r1", po::value<string>(&inputfile1)->required(),
+            "Input file (R1), or - to read from STDIN")
+        ("input-file-r2", po::value<string>(&inputfile2),
+            "Read 2 input file (optional)")
     ;
     po::options_description all_options("Allowed options");
     all_options.add(visible);
     all_options.add(positionals);
 
     po::positional_options_description pos_desc;
-    pos_desc.add("input-file", 1);
+    pos_desc.add("input-file-r1", 1);
+    pos_desc.add("input-file-r2", 2);
 
     po::variables_map vm;
     try {
@@ -599,11 +610,11 @@ int main(int argc, char* argv[]) {
             cerr << "  Specify - for input_file to read from standard input.\n" << endl;
             return 0;
         }
-        else if (vm.count("input-file") != 1) {
-            cerr << "ERROR: Argument input_file is required." << endl;
+        else if (vm.count("input-file-r1") != 1) {
+            cerr << "ERROR: Argument input_file_r1 is required." << endl;
             printUsage(argv[0]);
             cerr << visible << '\n';
-            cerr << "  Specify - for input_file to read from stdin." << endl;
+            cerr << "Specify - for input_file_r1 to read from stdin." << endl;
             return 1;
         }
         else {
@@ -616,40 +627,38 @@ int main(int argc, char* argv[]) {
       printUsage(argv[0]);
       cerr << visible << endl; 
       return 1; 
-    } 
+    }
 
-    InputSelector isel(inputfile);
-
+    InputSelector isel(inputfile1);
     if (!isel.valid) {
-        if (inputfile == "-") {
+        if (inputfile1 == "-") {
             cerr << "ERROR: Cannot open standard input: " << strerror(errno) << "\n";
         }
         else {
-            cerr << "ERROR: Cannot open file " << inputfile << ": " << strerror(errno) << "\n";
+            cerr << "ERROR: Cannot open file " << inputfile1 << ": " << strerror(errno) << "\n";
         }
         return 1;
+    }
+    istream&input = *isel.input;
+
+    istream* input2 = nullptr;
+    if (vm.count("input-file-r2") == 1) {
+        InputSelector* iselr2 = new InputSelector(inputfile2);
+        if (!isel.valid) {
+            cerr << "ERROR: Cannot open file " << inputfile1 << ": " << strerror(errno) << "\n";
+            return 1;
+        }
+        input2 = iselr2->input;
     }
 
     cerr << "-- suprDUPr v1.1 --\n";
 
-    ostream* output_ptr = &cout;
-    ofstream output_file;
-    if (vm.count("output-file") > 0) {
-        output_file.open(vm["output-file"].as<string>(), ios_base::out);
-        output_ptr = &output_file;
-    }
-
-    istream&input = *isel.input;
-    ostream&output = *output_ptr;
-
     size_t str_len_per_read = (size_t)(last_base - first_base);
-
 
     // Call the correct analysis loop for the specified string length
     // All these versions of the analysis loop are compiled as separate 
     // function, but only one is used for a given set of input parameters.
     Metrics result;
-    istream* input2 = &input; // TODO PE! (dummy variable to make it compile)
 
     size_t total_str_len;
     if (input2) {
@@ -671,7 +680,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 #define callAnalysisLoop(size) result = analysisLoop<TwoBitSequence<size>>(\
-                output, hash_bytes, first_base, str_len_per_read, winx, winy,\
+                cout, hash_bytes, first_base, str_len_per_read, winx, winy,\
                 region_sorted, unsorted, input, input2\
                 )
     else if (total_str_len > 288) callAnalysisLoop(10);
@@ -693,12 +702,12 @@ int main(int argc, char* argv[]) {
     if (result.error) {
         return 1; // error flag
     }
-    else if (input.eof() && output.good()) {
+    else if (input.eof() && cout.good()) {
         cerr << "Completed. Analysed " << result.num_reads << " records." << endl;
 #ifdef OUTPUT_READ_ID
         ostream& statsstream = cerr;
 #else
-        ostream& statsstream = output;
+        ostream& statsstream = cout;
 #endif
         statsstream << "NUM_READS\tREADS_WITH_DUP\tDUP_RATIO\n";
         statsstream << result.num_reads 
