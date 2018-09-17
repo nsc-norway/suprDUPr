@@ -31,6 +31,7 @@ conversion software (e.g. bcl2fastq).
 The options for `suprDUPr` and `suprDUPr.read_id` are the same.
 
     usage: ./suprDUPr [options] input_file_r1 [input_file_r2]
+
     Allowed options:
       -x [ --winx ] arg (=2500)  x coordinate window, +/- pixels
       -y [ --winy ] arg (=2500)  y coordinate window, +/- pixels
