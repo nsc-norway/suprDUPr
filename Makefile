@@ -1,4 +1,4 @@
-all: suprDUPr suprDUPr.read_id filterfq
+all: suprDUPr suprDUPr.read_id
 
 CFLAGS += -O3 -std=c++11
 
