@@ -355,8 +355,9 @@ Metrics analysisLoop(
             cerr << "ERROR: Unable to read from the input file (read 2)" << endl;
             return error();
         }
-        else if (header_r2_len != header_len || memcmp(headerbuf, dummybuf, header_len) != 0) {
-            cerr << "ERROR: Header in read 2 is different from header in read 1." << endl;
+        else if (header_r2_len != header_len) {
+            cerr << "ERROR: Header in read 2 is different from header in read 1: length "
+                 << header_r2_len << " differs from " << header_len << "." << endl;
             return error();
         }
     }
