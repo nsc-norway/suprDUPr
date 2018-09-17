@@ -47,17 +47,13 @@ template <size_t N>
 class TwoBitSequence {
  
 public:
-    // SequenceBuffer type -- Used as a buffer for data input.
-    // The buffer before and after the member data are used for parts of the
-    // sequence we are not interested in. The char_data member is used to get
-    // a pointer to the data array, but as a character type.
+    // SequenceBuffer type -- Used as a buffer for data input. Can appear as both
+    // a char array and a long array.
     struct SequenceBuffer {
-        char buffer[MAX_LEN];
         union {
             unsigned long data[N*4];
-            char char_data;
+            char char_data[N*4*8];
         };
-        char buffer2[MAX_LEN];
     };
 
     unsigned long data[N] = {};
@@ -441,7 +437,7 @@ Metrics analysisLoop(
             if (pe_fail) return error();
         }
 
-        if (!unsorted) {
+        if (!unsorted) { // Can we assume the file is sorted?
             // If header prefix doesn't match the last one, signal "end of group" (tile)
             if (memcmp(headerbuf, read_id, hf.start_to_coord_offset) != 0) {
                 group++;
@@ -467,10 +463,10 @@ Metrics analysisLoop(
         prev_y = y;
 
         if (num_read >= 1 + str_len_per_read + str_start) {
-            for (int i=0; i<str_len_per_read; ++i) sequence_buf.data[i] = databuffer1[i+str_start];
+            for (int i=0; i<str_len_per_read; ++i) sequence_buf.char_data[i] = databuffer1[i+str_start];
             if (input2) {
                 for (int i=0; i<str_len_per_read; ++i)
-                    sequence_buf.data[i+str_len_per_read] = databuffer2[i+str_start];
+                    sequence_buf.char_data[i+str_len_per_read] = databuffer2[i+str_start];
             }
 
 #ifdef OUTPUT_READ_ID
