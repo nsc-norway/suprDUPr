@@ -92,7 +92,8 @@ Note that only the first file (Read 1) is considered for the purpose of identify
 duplicates. It uses the `suprDUPr.read_id` program and a C++ program `filterfq`
 to perform the duplicate removal. `filter.sh` itself is mainly a wrapper program,
 which uses a named pipe to apply the same "read-ID" filtering to both data files
-in case of paired-end data.
+in case of paired-end data. `filterfq` is under development, and may fail to compile.
+Therefore it is excluded from the default compilation when running `make`.
 
 Example:
 
@@ -112,7 +113,11 @@ output will also be compressed, regardless of its extension.
 ### Advanced filtering script
 
 The package includes a program to remove duplicates in a file based on the output of
-`suprDUPr.read_id`, called `filterfq`. This program is used by the above wrapper script
+`suprDUPr.read_id`, called `filterfq`.
+
+Filterfq is under development. Please check back for an updated, working filterfq.
+
+This program is used by the above wrapper script
 `filter.sh`, but it can also be used directly.
 
 The following command outputs reads which are not "sequencinge duplicates" in data.fastq,
@@ -120,8 +125,8 @@ to a file called filtered.fastq:
 
     $ ./suprDUPr.read_id data.fastq | ./filterfq data.fastq > filtered.fastq
 
-Note that the file must be specified as an input to both suprDUPr.read_id and
-filterfq.
+Note that the file must be specified as an input to both `suprDUPr.read_id` and
+`filterfq`.
 
 
 ### Paired-end analysis
@@ -133,11 +138,18 @@ same sequence in read one, but a different insert size. These fragments are
 not caused by "sequencing-related" effects, such as ExAmp -- instead they are
 genuinely different reads.
 
-It used to be possible to analyse PE data using `suprDUPr.read_id` and standard
+Previously, PE analysis was implemented using `suprDUPr.read_id` and standard
 UNIX shell commands. As suprDUPr now has native PE support, this approach is no
-longer needed. Keep in mind, however, that a shorter matching string length per
-read (start/end position) may be in beneficial, as the effective matching string
-is twice as long when running on PE data.
+longer needed. The shell-based pipeline provided a slightly different (larger)
+result for the duplicate ratio, for a given set of parameters. To count a read
+as duplicate, it only required the read was marked as duplicate in both R1 and
+R2, considered separately. The result produced by suprDUPr's native PE analysis is
+better, as it consideres the read pair together, and requires both R1 and R2 to
+match to the same duplicate. In practice, the difference seems negligible.
+
+Keep in mind that a shorter matching string length per read (start/end position)
+may be in required, as the effective matching string is twice as long when running
+on PE data.
 
 
 ## How to compile the program
