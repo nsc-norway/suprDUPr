@@ -419,23 +419,25 @@ Metrics analysisLoop(
         // Ignore the quality header and quality, to the end of the record
         size_t num_qheader = readLineGetCount(input1, dummybuf, MAX_LEN);
         input1.ignore(num_read);
+        // Setting number read for R2 to something acceptable, in case of single-read, we're
+        // not going to read from input2.
+        long r2_num_read;
 
         if (input2) { // Note: check pointer not zero => PE enabled
-            bool pe_fail = true;
-            if (!first && readLineGetCount(*input2, dummybuf, MAX_LEN) != header_len) {
-                cerr << "ERROR: PE reads do not have the same length" << endl;
+            long test = 0;
+            if (!first && (test=readLineGetCount(*input2, dummybuf, MAX_LEN)) != header_len) {
+                cerr << "ERROR: At index " << analysisHead.metrics.num_reads << " in files "
+                     << "PE read headers do not have the same length: R1 header length is "
+                     << header_len << " and R2 header length is " << test << "." << endl;
+                return error();
             }
-            else if (readLineGetCount(*input2, databuffer2, MAX_LEN) != num_read) {
-                cerr << "ERROR: PE reads do not have the same length" << endl;
+            r2_num_read=readLineGetCount(*input2, databuffer2, MAX_LEN);
+            if (readLineGetCount(*input2, dummybuf, MAX_LEN) != num_qheader) {
+                cerr << "ERROR: PE reads do not have the same length: mismatch in quality header."
+                     << endl;
+                return error();
             }
-            else if (readLineGetCount(*input2, dummybuf, MAX_LEN) != num_qheader) {
-                cerr << "ERROR: PE reads do not have the same length" << endl;
-            }
-            else {
-                pe_fail = false;
-                input2->ignore(num_read);
-            }
-            if (pe_fail) return error();
+            input2->ignore(r2_num_read);
         }
 
         if (!unsorted) { // Can we assume the file is sorted?
@@ -463,7 +465,8 @@ Metrics analysisLoop(
         }
         prev_y = y;
 
-        if (num_read >= 1 + str_len_per_read + str_start) {
+        if (num_read >= 1 + str_len_per_read + str_start && 
+                ((input2 == nullptr) || r2_num_read >= 1 + str_len_per_read + str_start)) {
             for (int i=0; i<str_len_per_read; ++i) sequence_buf.char_data[i] = databuffer1[i+str_start];
             if (input2) {
                 for (int i=0; i<str_len_per_read; ++i)
