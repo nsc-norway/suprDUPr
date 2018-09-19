@@ -81,8 +81,56 @@ Process a file which is not sorted:
 
 ### Example output
 
-    HELLO WORD
+    $ ./suprDUPr TEST_R1.fq.gz
+    -- suprDUPr v1.1 --
+    Using positions from 10 to 60
+    Started reading FASTQ file...
+    Completed. Analysed 10000 records.
+    NUM_READS	READS_WITH_DUP	DUP_RATIO
+    10000	233	0.0233
 
+The two bottom lines are written to STDOUT, the rest is status information written
+to STDERR. The table contains three columns:
+
+ - `NUM_READS`: Number of reads analysed. For PE, it's the number of read pairs.
+ - `READS_WITH_DUP`: Number of reads identified as duplicate. See below.
+ - `DUP_RATIO`: Fraction of the reads which are duplicate. This is usually the most
+   interesting. This is `READS_WITH_DUP` divided by `NUM_READS`.
+
+#### Definition of duplicate reads
+
+The simplest is if duplicates only occur as pairs of identical sequences. Then one
+read out of each pair is counted as duplicate. When there are more than two, all
+reads except one are duplicates. The column is named `READS_WITH_DUP` because of an
+equivalent method of counting: the program counts all reads for which we already know
+about a read with identical sequence (within the search area), a "duplicate". Each
+examined pair is required to be within the distance threshold.
+
+#### Read-identifier output
+
+The alternative program `suprDUPr.read_id` can be used for further analysis of
+duplicates. It outputs a line for each pair of sequences which are identical in the 
+defined substring match, if they are within the distance threshold. Each line contains
+two tab-separated values, with a substring of the FASTQ headers of the identical
+sequences.
+
+
+    ST-E00159:10:H05PHALXX:1:1101:27126:1326	ST-E00159:10:H05PHALXX:1:1101:27105:1326
+    ST-E00159:10:H05PHALXX:1:1101:29227:1344	ST-E00159:10:H05PHALXX:1:1101:29196:1326
+    ST-E00159:10:H05PHALXX:1:1101:30303:1449	ST-E00159:10:H05PHALXX:1:1101:30282:1449
+    ST-E00159:10:H05PHALXX:1:1101:31683:1555	ST-E00159:10:H05PHALXX:1:1101:31663:1555
+    ST-E00159:10:H05PHALXX:1:1101:27288:1748	ST-E00159:10:H05PHALXX:1:1101:27298:1731
+    ST-E00159:10:H05PHALXX:1:1101:28912:1748	ST-E00159:10:H05PHALXX:1:1101:27796:1432
+    ST-E00159:10:H05PHALXX:1:1101:18833:1766	ST-E00159:10:H05PHALXX:1:1101:19107:1748
+    ST-E00159:10:H05PHALXX:1:1101:22203:1836	ST-E00159:10:H05PHALXX:1:1101:22142:1801
+
+This output will usually contain more lines than `READS_WITH_DUP`, if there are any
+n-plicates in the file for n>2. The output is only for pairwise comparisons, but a
+single read may produce multiple lines if it is equal to several other reads.  The
+number of unique items in either of the columns is equal to `READS_WITH_DUP`. The
+first column always contains the read which occurs later in the file. `suprDUPr.read_id`
+will output the normal statistics table to STDERR, as STDOUT is reserved for the read
+identifiers.
 
 
 ### Filtering pipeline (duplicate removal)
