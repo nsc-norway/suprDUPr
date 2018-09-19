@@ -84,7 +84,8 @@ public:
          * is seq_len/32 rounded up. Also, the buffer passed to the constructor
          * must be at least N*32 bytes long, zero padded if necessary.
          *
-         * The handling of N characters in addition to ACGT was added later.
+         * The handling of 'N' characters, i.e. unknown base calls, in addition
+         * to ACGT was added later.
          */
         //const unsigned long* blocks = (const unsigned long*) __builtin_assume_aligned(seq, 8);
         for (size_t i=0; i<N; ++i) {
