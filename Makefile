@@ -3,10 +3,10 @@ all: suprDUPr suprDUPr.read_id
 CFLAGS += -O3 -std=c++11
 
 suprDUPr: suprDUPr.cpp
-	$(CXX) -o $@ $^ $(CFLAGS) -lz -lboost_program_options$(BOOST_LIB_SUFF) -lboost_iostreams$(BOOST_LIB_SUFF)
+	$(CXX) -o $@ $^ $(CFLAGS) -pthread -lz -lboost_program_options$(BOOST_LIB_SUFF) -lboost_iostreams$(BOOST_LIB_SUFF)
 
 suprDUPr.read_id: suprDUPr.cpp
-	$(CXX) -o $@ $^ $(CFLAGS) -DOUTPUT_READ_ID -lz -lboost_program_options$(BOOST_LIB_SUFF) -lboost_iostreams$(BOOST_LIB_SUFF)
+	$(CXX) -o $@ $^ $(CFLAGS) -DOUTPUT_READ_ID -pthread -lz -lboost_program_options$(BOOST_LIB_SUFF) -lboost_iostreams$(BOOST_LIB_SUFF)
 
 filterfq: filterfq.cpp
 	$(CXX) -o $@ $^ $(CFLAGS) -lz -lboost_iostreams$(BOOST_LIB_SUFF)

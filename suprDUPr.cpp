@@ -8,7 +8,9 @@
 #include <forward_list>
 
 #include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/stream.hpp>
 #include <boost/program_options.hpp>
+#include "thread_source.hpp"
 
 // gzip compatibility: gzip from Boost 1.48 does not support block gzip format
 // (bgzf), so we include a local header file with support for it.
@@ -34,6 +36,8 @@
 // This constant contains the maximum length of each line in the input file,
 // used for the buffer size.
 #define MAX_LEN 1024
+
+#define STREAM_BUFFER_SIZE 1024*1024
 
 using namespace std;
 namespace po = boost::program_options;
@@ -87,7 +91,6 @@ public:
          * The handling of 'N' characters, i.e. unknown base calls, in addition
          * to ACGT was added later.
          */
-        //const unsigned long* blocks = (const unsigned long*) __builtin_assume_aligned(seq, 8);
         for (size_t i=0; i<N; ++i) {
             // Read four blocks of ASCII data into the i-th 64-bit int
             data[i] = (blocks[i*4] & (0x0606060606060606ul)) >> 1;
@@ -507,12 +510,14 @@ class InputSelector {
         unique_ptr<istream> filtered_input;
         ifstream file_input;
         boost::iostreams::filtering_istream in;
+        boost::iostreams::stream<thread_source> tsstream;
 
     public:
         istream* input;
         bool valid;
 
-        InputSelector(const string& filename) {
+        InputSelector(const string& filename, bool multithreading)
+            : tsstream(thread_source(in, STREAM_BUFFER_SIZE), STREAM_BUFFER_SIZE) {
             // Disable sync with printf, etc.
             ios_base::sync_with_stdio(false);
             // Use a simple locale, for speed
@@ -545,7 +550,13 @@ class InputSelector {
             if (byte1 == 0x1f && byte2 == 0x8b) {
                 in.push(boost::iostreams::gzip_decompressor());
                 in.push(*raw_input);
-                input = &in;
+                if (multithreading) {
+                    tsstream->start();
+                    input = &tsstream;
+                }
+                else {
+                    input = &in;
+                }
             }
             else {
                 input = raw_input;
@@ -562,7 +573,7 @@ int main(int argc, char* argv[]) {
     unsigned int winx, winy;
     int first_base, last_base = -1;
     size_t hash_bytes;
-    bool region_sorted, unsorted;
+    bool region_sorted, unsorted, single_thread;
 
     po::options_description visible("Allowed options");
     visible.add_options()
@@ -574,12 +585,13 @@ int main(int argc, char* argv[]) {
             "First position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
             "Last position in reads to consider")
-        ("region-sorted,r", po::bool_switch(&region_sorted),
+        ("region-sorted,r", po::bool_switch(&single_thread),
             "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
             "within the region.")
         ("unsorted,u", po::bool_switch(&unsorted),
             "Process unsorted file (a large hash-size is recommended, see --hash-size). This "
             "mode requires all data to be stored in memory, and it is not well optimised.")
+        ("single,1", po::bool_switch(&single_thread), "Disable multithreading")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
             "Hash table size (bytes), must be a power of 2. (increase if winy>2500).")
         ("help,h", "Show this help message")
@@ -630,7 +642,7 @@ int main(int argc, char* argv[]) {
       return 1; 
     }
 
-    InputSelector isel(inputfile1);
+    InputSelector isel(inputfile1, !single_thread);
     if (!isel.valid) {
         if (inputfile1 == "-") {
             cerr << "ERROR: Cannot open standard input: " << strerror(errno) << "\n";
@@ -644,7 +656,7 @@ int main(int argc, char* argv[]) {
 
     istream* input2 = nullptr;
     if (vm.count("input-file-r2") == 1) {
-        InputSelector* iselr2 = new InputSelector(inputfile2);
+        InputSelector* iselr2 = new InputSelector(inputfile2, !single_thread);
         if (!isel.valid) {
             cerr << "ERROR: Cannot open file " << inputfile1 << ": " << strerror(errno) << "\n";
             return 1;
@@ -652,7 +664,7 @@ int main(int argc, char* argv[]) {
         input2 = iselr2->input;
     }
 
-    cerr << "-- suprDUPr v1.1 --\n";
+    cerr << "-- suprDUPr v1.2 --\n";
 
     size_t str_len_per_read = (size_t)(last_base - first_base);
 

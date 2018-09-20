@@ -12,6 +12,7 @@ conversion software (e.g. bcl2fastq).
                  specify the input files, it is no longer possible to specify
                  an output file on the command line. Instead it is recommended
                  to redirect STDOUT to a file using other methods.
+  - Version 1.2: Added multithreaded input. See Multithreading section.
 
 
 ## Programs and pipelines
@@ -35,22 +36,22 @@ The options for `suprDUPr` and `suprDUPr.read_id` are the same.
     Allowed options:
       -x [ --winx ] arg (=2500)  x coordinate window, +/- pixels
       -y [ --winy ] arg (=2500)  y coordinate window, +/- pixels
-      -s [ --start ] arg (=10)   First nucleotide position in reads to consider
-      -e [ --end ] arg (=60)     Last nucleotide position in reads to consider (use
-                                 -1 for the end of the read)
+      -s [ --start ] arg (=10)   First position in reads to consider
+      -e [ --end ] arg (=60)     Last position in reads to consider
       -r [ --region-sorted ]     Assume the input file is sorted by region (tile),
                                  but not by (y, x) coordinate within the region.
       -u [ --unsorted ]          Process unsorted file (a large hash-size is
                                  recommended, see --hash-size). This mode requires
                                  all data to be stored in memory, and it is not
                                  well optimised.
+      -1 [ --single ]            Disable multithreading
       --hash-size arg (=4194304) Hash table size (bytes), must be a power of 2.
                                  (increase if winy>2500).
       -h [ --help ]              Show this help message
     
-      Specify - for input_file to read from stdin.
+    Specify - for input_file_r1 to read from stdin.
 
-IF two files are provided on the command line, they are assumed to be from paired-end
+If two files are provided on the command line, they are assumed to be from paired-end
 sequencing. Then the same substring is always used in both reads, and `-s` and `-e`
 specify the positions to use in both reads.
 
@@ -131,6 +132,16 @@ number of unique items in either of the columns is equal to `READS_WITH_DUP`. Th
 first column always contains the read which occurs later in the file. `suprDUPr.read_id`
 will output the normal statistics table to STDERR, as STDOUT is reserved for the read
 identifiers.
+
+
+### Multithreading
+
+For gzip'd input files, the decompression runs in separate threads by default.  If
+the input is not compressed, only a single thread is used. gzip decompression requires
+more CPU than the analysis, so the core for analysis is never fully utilised. For
+single-read data, the CPU usage is around 140 % of a core, for paired end it is
+240 %. If only one core is available, it may be slightly more efficient to constrain
+it to single-threaded operation using the -1 option.
 
 
 ### Filtering pipeline (duplicate removal)
