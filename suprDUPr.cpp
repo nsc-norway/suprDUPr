@@ -657,8 +657,8 @@ int main(int argc, char* argv[]) {
     istream* input2 = nullptr;
     if (vm.count("input-file-r2") == 1) {
         InputSelector* iselr2 = new InputSelector(inputfile2, !single_thread);
-        if (!isel.valid) {
-            cerr << "ERROR: Cannot open file " << inputfile1 << ": " << strerror(errno) << "\n";
+        if (!iselr2->valid) {
+            cerr << "ERROR: Cannot open file " << inputfile2 << ": " << strerror(errno) << "\n";
             return 1;
         }
         input2 = iselr2->input;
