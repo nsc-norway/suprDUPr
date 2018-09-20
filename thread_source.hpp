@@ -1,5 +1,5 @@
-#ifndef THREAD_INPUT_FILTER_INCLUDED
-#define THREAD_INPUT_FILTER_INCLUDED
+#ifndef THREAD_SOURCE_INCLUDED
+#define THREAD_SOURCE_INCLUDED
 
 #include <thread>
 #include <condition_variable>
@@ -8,14 +8,17 @@
 #include <boost/iostreams/categories.hpp>
 
 /**
- * Filter to buffer input and perform input read operations in
- * another thread. read() calls to the istream are made in a 
- * different thread, so all filters/devices upstream of this one
- * will run in that thread.
+ * thread_source
  *
- * This only works if the istream is always the same, which I think
- * it usually is. Why is istream an argument to read() and not to
- * the constructor?
+ * Implementation of a Device (boost::iostreams) which can wrap an
+ * istream, and perform read operations in a dedicated thread. The
+ * data from the istream are buffered, and provided to the caller of
+ * read().
+ * 
+ * Known issue: While the thread_source is copy-constructible, copies
+ * are not interchangeable. The instance of thread_source used for
+ * read operations must be the same as the instance on which start()
+ * is called.
  */
 
 #include <chrono>
@@ -140,4 +143,4 @@ public:
 
 };
 
-#endif // #ifndef THREAD_INPUT_FILTER_INCLUDED
+#endif // #ifndef THREAD_SOURCE_INCLUDED
