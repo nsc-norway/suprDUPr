@@ -2,6 +2,8 @@
 #include <iostream>
 #include <thread>
 #include <queue>
+#include <mutex>
+#include <condition_variable>
 
 #include <boost/iostreams/filtering_stream.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
