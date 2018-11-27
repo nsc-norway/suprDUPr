@@ -664,7 +664,7 @@ int main(int argc, char* argv[]) {
         input2 = iselr2->input;
     }
 
-    cerr << "-- suprDUPr v1.2 --\n";
+    cerr << "-- suprDUPr v1.3 --\n";
 
     size_t str_len_per_read = (size_t)(last_base - first_base);
 
