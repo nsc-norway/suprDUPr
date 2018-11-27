@@ -151,9 +151,7 @@ Note that only the first file (Read 1) is considered for the purpose of identify
 duplicates. It uses the `suprDUPr.read_id` program and a C++ program `filterfq`
 to perform the duplicate removal. `filter.sh` itself is mainly a wrapper program,
 which uses a named pipe to apply the same "read-ID" filtering to both data files
-in case of paired-end data. `filterfq` is under development, and may fail to compile.
-Therefore it is excluded from the default compilation when running `make`.
-
+in case of paired-end data.
 Example:
 
     $ ./filter.sh sample_R1.fastq sample_R2.fastq filtered_R1.fastq filtered_R2.fastq
@@ -174,10 +172,7 @@ output will also be compressed, regardless of its extension.
 The package includes a program to remove duplicates in a file based on the output of
 `suprDUPr.read_id`, called `filterfq`.
 
-Filterfq is under development. Please check back for an updated, working filterfq.
-
-This program is used by the above wrapper script
-`filter.sh`, but it can also be used directly.
+This program is used by the above wrapper script `filter.sh`, but it can also be used directly.
 
 The following command outputs reads which are not "sequencinge duplicates" in data.fastq,
 to a file called filtered.fastq:
@@ -199,16 +194,9 @@ genuinely different reads.
 
 Previously, PE analysis was implemented using `suprDUPr.read_id` and standard
 UNIX shell commands. As suprDUPr now has native PE support, this approach is no
-longer needed. The shell-based pipeline provided a slightly different (larger)
-result for the duplicate ratio, for a given set of parameters. To count a read
-as duplicate, it only required the read was marked as duplicate in both R1 and
-R2, considered separately. The result produced by suprDUPr's native PE analysis is
-better, as it consideres the read pair together, and requires both R1 and R2 to
-match to the same duplicate. In practice, the difference seems negligible.
-
-Keep in mind that a shorter matching string length per read (start/end position)
-may be in required, as the effective matching string is twice as long when running
-on PE data.
+longer needed. Keep in mind that a shorter matching string length per read
+(start/end position) may be in required, as the effective matching string is
+twice as long when running on PE data.
 
 
 ## How to compile the program
