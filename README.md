@@ -5,6 +5,11 @@ Tool for identifying duplicates reads in close physical proximity on patterned I
 The tool is designed to analyse FASTQ files with un-trimmed reads, in the format output by BCL
 conversion software (e.g. bcl2fastq).
 
+Please see this link for binary (Linux) downloads and source:
+
+https://github.com/nsc-norway/suprDUPr/releases
+
+
 ## News
 
   - Version 1.3: Fixed some compilation errors (!) and provided downloadable
