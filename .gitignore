@@ -31,9 +31,9 @@
 filterfq
 suprDUPr
 suprDUPr.read_id
+suprDUPr.tar
 
 # Data files
 *.txt
 *.fastq
 *.fastq.gz
-

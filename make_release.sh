@@ -4,5 +4,6 @@
 make clean
 export CFLAGS=-static
 make
-tar cf suprDUPr.tar suprDUPr suprDUPr.read_id filterfq
+FILES="filter.sh suprDUPr suprDUPr.read_id filterfq"
+tar cf suprDUPr.tar $FILES
 

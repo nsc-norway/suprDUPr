@@ -7,12 +7,14 @@ conversion software (e.g. bcl2fastq).
 
 ## News
 
+  - Version 1.3: Fixed some compilation errors (!) and provided downloadable
+                 binaries.
+  - Version 1.2: Added multithreaded input. See Multithreading section
   - Version 1.1: Introduces native support for analysing both reads of paired-
                  end data. Because two command-line arguments are needed to 
                  specify the input files, it is no longer possible to specify
                  an output file on the command line. Instead it is recommended
                  to redirect STDOUT to a file using other methods.
-  - Version 1.2: Added multithreaded input. See Multithreading section.
 
 
 ## Programs and pipelines
