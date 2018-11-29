@@ -47,14 +47,16 @@ then
 	exit 1
 fi
 
+DIR=$(dirname "$0")
+
 if $single_read
 then
-	./suprDUPr.read_id ${supr_args[*]} "$r1file" | ./filterfq "$r1file" > "$r1output"
+	$DIR/suprDUPr.read_id ${supr_args[*]} "$r1file" | $DIR/filterfq "$r1file" > "$r1output"
 else
 	read_id_fifo=`mktemp -u`_readidfifo
 	mkfifo $read_id_fifo
-	./suprDUPr.read_id ${supr_args[*]} "$r1file" | tee $read_id_fifo | ./filterfq "$r1file" > "$r1output" &
-	./filterfq "$r2file" > "$r2output" < $read_id_fifo &
+	$DIR/suprDUPr.read_id ${supr_args[*]} "$r1file" | tee $read_id_fifo | $DIR/filterfq "$r1file" > "$r1output" &
+	$DIR/filterfq "$r2file" > "$r2output" < $read_id_fifo &
 	wait
 	rm $read_id_fifo
 fi
