@@ -22,15 +22,28 @@ then
 	r1file="$1"
 	r1output="$2"
     last="$2"
+    toomany="$3"
 else
 	r1file="$1"
 	r1output="$3"
 	r2file="$2"
 	r2output="$4"
     last="$4"
+    toomany="$5"
 fi
 
 if [[ -z "$last" ]]
+then
+	echo ""
+	echo "usage PE: filter.sh [SUPR_OPTIONS] R1_FILE R2_FILE R1_OUTPUT R2_OUTPUT"
+	echo ""
+	echo "      SR: filter.sh -1 [SUPR_OPTIONS] R1_FILE R1_OUTPUT"
+	echo ""
+	echo ""
+	exit 1
+fi
+
+if [[ ! -z "$toomany" ]]
 then
 	echo ""
 	echo "usage PE: filter.sh [SUPR_OPTIONS] R1_FILE R2_FILE R1_OUTPUT R2_OUTPUT"
