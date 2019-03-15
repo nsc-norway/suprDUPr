@@ -8,8 +8,18 @@
 #include <forward_list>
 
 #include <boost/iostreams/filtering_stream.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/stream.hpp>
 #include <boost/program_options.hpp>
+#include "thread_source.hpp"
+
+// gzip compatibility: gzip from Boost 1.48 does not support block gzip format
+// (bgzf), so we include a local header file with support for it.
+#if BOOST_VERSION == 104800
+#include "gzip.hpp"
+#else
+#include <boost/iostreams/filter/gzip.hpp>
+#endif
+
 
 /*
  * suprDUPr - the duplicate detection tool
@@ -27,6 +37,8 @@
 // used for the buffer size.
 #define MAX_LEN 1024
 
+#define STREAM_BUFFER_SIZE 1024*1024
+
 using namespace std;
 namespace po = boost::program_options;
 
@@ -39,17 +51,13 @@ template <size_t N>
 class TwoBitSequence {
  
 public:
-    // SequenceBuffer type -- Used as a buffer for data input.
-    // The buffer before and after the member data are used for parts of the
-    // sequence we are not interested in. The char_data member is used to get
-    // a pointer to the data array, but as a character type.
+    // SequenceBuffer type -- Used as a buffer for data input. Can appear as both
+    // a char array and a long array.
     struct SequenceBuffer {
-        char buffer[MAX_LEN];
         union {
             unsigned long data[N*4];
-            char char_data;
+            char char_data[N*4*8];
         };
-        char buffer2[MAX_LEN];
     };
 
     unsigned long data[N] = {};
@@ -69,8 +77,8 @@ public:
          * then shift them as appropriate.
          *
          * The 2-bit codes aren't stored in order, making it a bit more efficient
-         * to read them in 8-byte chunks. One can fit 4 2-bit nucleotides into the
-         * space of a single ASCII character (byte). The nucleotides are stored in
+         * to read them in 8-byte chunks. One can fit 4 2-bit base pairs into the
+         * space of a single ASCII character (byte). The data are stored in
          * an unique, but non-obvious order (order is irrelevant as long as equality
          * is preserved):
          * 1,9,17,25,2,10,18,26,3,11,19,27,.....,8,16,24,32
@@ -80,9 +88,9 @@ public:
          * is seq_len/32 rounded up. Also, the buffer passed to the constructor
          * must be at least N*32 bytes long, zero padded if necessary.
          *
-         * The handling of N characters in addition to ACGT was added later.
+         * The handling of 'N' characters, i.e. unknown base calls, in addition
+         * to ACGT was added later.
          */
-        //const unsigned long* blocks = (const unsigned long*) __builtin_assume_aligned(seq, 8);
         for (size_t i=0; i<N; ++i) {
             // Read four blocks of ASCII data into the i-th 64-bit int
             data[i] = (blocks[i*4] & (0x0606060606060606ul)) >> 1;
@@ -263,12 +271,63 @@ class AnalysisHead {
         }
 };
 
+int get_coordinate_position() {
+    return 0;
+};
+
+
 // This returns a result signifying an error.
 Metrics error() {
     Metrics m;
     m.error = true;
     return m;
 }
+
+
+class HeaderFormat {
+
+public:
+    bool valid;
+    size_t start_to_coord_offset = 0;
+    HeaderFormat(const string& header) {
+
+        // Determine the header format. In Illumina format, the x coordinate
+        // is after the fifth colon and the y coordinate after the sixth 
+        // colon up to a space.
+        size_t start_to_y_coord_offset = 0;
+        size_t colons = 0, end_coords = 0; // temporary variables
+        size_t i;
+        for (i=0; i<header.size(); ++i) {
+            if (header[i] == ':') {
+                ++colons;
+                if (colons == 5) start_to_coord_offset = i+1;
+                if (colons == 6) start_to_y_coord_offset = i+1;
+            }
+            else if (header[i] == ' ') {
+                end_coords = i;
+            }
+        }
+        if (end_coords == 0)
+            end_coords = i;
+        valid = (colons >= 6);
+    }
+
+    bool operator ==(const HeaderFormat& other) {
+        return start_to_coord_offset == other.start_to_coord_offset &&
+                valid == other.valid;
+     }
+};
+
+long readLineGetCount(istream& stream, char* buffer, size_t max_size) {
+    stream.getline(buffer, max_size);
+    if (stream) {
+        return stream.gcount();
+    }
+    else {
+        return -1;
+    }
+}
+
 
 /*
  * Function analysisLoop is called by main program to run the actual analysis.
@@ -282,168 +341,155 @@ Metrics error() {
 template <typename VALUE>
 Metrics analysisLoop(
         ostream& output,
-        size_t hash_bytes, size_t str_start, size_t str_len,
+        size_t hash_bytes, size_t str_start, size_t str_len_per_read,
         int winx, int winy, bool region_sorted, bool unsorted,
-        istream& input, const string& header, const string& sequence
-        ) {
+        istream& input1, istream* input2) {
 
+    char* headerbuf = new char[MAX_LEN];
+    char* dummybuf = new char[MAX_LEN];
 
-    // Do some more work to determine the header format. In Illumina format, the 
-    // x coordinate is after the fifth colon and the y coordinate after the sixth 
-    // colon up to a space.
-    size_t start_to_coord_offset = 0, start_to_y_coord_offset = 0;
-    size_t colons = 0, end_coords = 0; // temporary variables
-    size_t i;
-    for (i=0; i<header.size(); ++i) {
-        if (header[i] == ':') {
-            ++colons;
-            if (colons == 5) start_to_coord_offset = i+1;
-            if (colons == 6) start_to_y_coord_offset = i+1;
-        }
-        else if (header[i] == ' ') {
-            end_coords = i;
-        }
-    }
-    if (end_coords == 0)
-        end_coords = i;
-    if (colons < 6) {
-        cerr << "Illumina format x/y coordinates not detected" << endl;
+    long header_len = readLineGetCount(input1, headerbuf, MAX_LEN);
+    if (header_len == -1) {
+        cerr << "ERROR: Unable to read from the input file (read 1)" << endl;
         return error();
     }
-
-    // Parse the x/y of the first entry in a special way, because we have already
-    // read the lines into memory.
-    int x, y;
-    x = atoi(header.c_str() + start_to_coord_offset);
-    y = atoi(header.c_str() + start_to_y_coord_offset);
+    if (input2) {
+        long header_r2_len = readLineGetCount(*input2, dummybuf, MAX_LEN);
+        if (header_r2_len == -1) {
+            cerr << "ERROR: Unable to read from the input file (read 2)" << endl;
+            return error();
+        }
+        else if (header_r2_len != header_len) {
+            cerr << "ERROR: Header in read 2 is different from header in read 1: length "
+                 << header_r2_len << " differs from " << header_len << "." << endl;
+            return error();
+        }
+    }
+    HeaderFormat hf(string(headerbuf, header_len));
+    if (!hf.valid) {
+        cerr << "ERROR: Illumina format x/y coordinates not detected" << endl;
+        return error();
+    }
 
     // Group (region) counter, incremented every time the prefix of the read
     // identifier, the string before the x and y coordinates, changes. In
-    // unsorted mode, this must be different than 0, as 0 indicates an unknown
+    // unsorted mode, this must be different from 0, as 0 indicates an unknown
     // group.
-    int group = 1, unsorted_mode_group_counter = 1;
+    int unsorted_mode_group_counter = 0, group = 0;
     map<string, int> unsorted_mode_group;
-    int prev_y = 0;
-
-    size_t seq_len = sequence.size();
-    if (seq_len >= MAX_LEN) {
-        cerr << "Sequence is too long, max supported is: " << MAX_LEN << "." << endl;
-        return error();
-    }
-
-    // Read identifier prefix (before coordinates)
-    char read_id[start_to_coord_offset];
-    memcpy(read_id, &header[0], start_to_coord_offset);
+    int x, y, prev_y = 0;
 
     // Sequence buffer
     typename VALUE::SequenceBuffer sequence_buf;
     memset(&sequence_buf, 0, sizeof(sequence_buf));
     // Pointer to read sequence data
-    char* linebuf = &sequence_buf.char_data - str_start;
-    char* headerbuf = new char[MAX_LEN];
-    char* dummybuf = new char[MAX_LEN];
-    sequence.copy(&sequence_buf.char_data, str_len, str_start);
+    char* databuffer1 = new char[MAX_LEN];
+    char* databuffer2 = new char[MAX_LEN];
 
-    // Need to zero the rest of the string after reading, if it does not fit exactly
-    // into the data array. The unused part of data must be zero for TwoBitSequence to
-    // work.
-    char* zero_start = (&sequence_buf.char_data) + str_len;
-    size_t zero_num = sizeof(sequence_buf.data) - str_len;
-
-    // We also accept a header between sequence and quality, doesn't need to be just
-    // "+". For example, some files from SRA have this.
-    string middle_header;
-    getline(input, middle_header);
-
-    if (middle_header.size() == 0 || middle_header[0] != '+') {
-        cerr << "The line after the sequence doesn't conform to the expected " 
-            << "format." << endl;
-        return error();
-    }
-
-    input.ignore(1 + seq_len); // Ignores quality scores and \n
+    char read_id[hf.start_to_coord_offset];
+    memset(read_id, 0, sizeof(read_id));
 
     AnalysisHead<VALUE> analysisHead(output, hash_bytes, winx, winy, region_sorted, unsorted);
 
     cerr << "Started reading FASTQ file..." << endl;
 
-    if (input) {
-#ifdef OUTPUT_READ_ID
-        analysisHead.enterPoint(group, x, y, header.c_str() + 1, end_coords, sequence_buf.data);
-#else
-        analysisHead.enterPoint(group, x, y, sequence_buf.data);
-#endif
-        // This is used only for unordered mode
-        unsorted_mode_group[string(header, start_to_coord_offset)] = group;
-        while (input) { // Input loop
-            input.getline(headerbuf, MAX_LEN);
+    bool first = true;
 
-            if (!input) break;
+    while (input1) { // Input loop
 
-            // Read the coordinates, then ignore the rest of the header line
-            char* ptr;
-            x = strtol(headerbuf+start_to_coord_offset, &ptr, 10);
-            if (*ptr != ':') {
-                cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
-                     << "and the header must be the standard Illumina header." << endl;
+        if (!first)
+            header_len = readLineGetCount(input1, headerbuf, MAX_LEN);
+
+        if (!input1) break;
+
+        // Read the coordinates, then ignore the rest of the header line
+        char* ptr;
+        x = strtol(headerbuf+hf.start_to_coord_offset, &ptr, 10);
+        if (*ptr != ':') {
+            cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
+                 << "and the header must be the standard Illumina header." << endl;
+            return error();
+        }
+        y = strtol(ptr+1, &ptr, 10);
+        if (*ptr != ' ' && *ptr != '\0') {
+            cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
+                 << "and the header must be the standard Illumina header." << endl;
+            return error();
+        }
+
+        // Read sequence string, get number of characters read including end of line
+        size_t num_read = readLineGetCount(input1, databuffer1, MAX_LEN);
+
+        // Ignore the quality header and quality, to the end of the record
+        size_t num_qheader = readLineGetCount(input1, dummybuf, MAX_LEN);
+        input1.ignore(num_read);
+        // Setting number read for R2 to something acceptable, in case of single-read, we're
+        // not going to read from input2.
+        long r2_num_read;
+
+        if (input2) { // Note: check pointer not zero => PE enabled
+            long test = 0;
+            if (!first && (test=readLineGetCount(*input2, dummybuf, MAX_LEN)) != header_len) {
+                cerr << "ERROR: At index " << analysisHead.metrics.num_reads << " in files "
+                     << "PE read headers do not have the same length: R1 header length is "
+                     << header_len << " and R2 header length is " << test << "." << endl;
                 return error();
             }
-            y = strtol(ptr+1, &ptr, 10);
-            if (*ptr != ' ' && *ptr != '\0') {
-                cerr << "ERROR: Invalid file format detected. All reads must be of the same length, "
-                     << "and the header must be the standard Illumina header." << endl;
+            r2_num_read=readLineGetCount(*input2, databuffer2, MAX_LEN);
+            if (readLineGetCount(*input2, dummybuf, MAX_LEN) != num_qheader) {
+                cerr << "ERROR: PE reads do not have the same length: mismatch in quality header."
+                     << endl;
                 return error();
             }
+            input2->ignore(r2_num_read);
+        }
 
-            // Read sequence string
-            input.getline(linebuf, MAX_LEN);
-
-            // Number of characters read including end of line
-            size_t num_read = input.gcount();
-            // Ignore the quality header and quality, to the end of the record
-            input.getline(dummybuf, MAX_LEN);
-            input.getline(dummybuf, MAX_LEN);
-
-            if (!unsorted) {
-                // If header prefix doesn't match the last one, signal "end of group" (tile)
-                if (memcmp(headerbuf, read_id, start_to_coord_offset) != 0) {
-                    group++;
-                    memcpy(read_id, headerbuf, start_to_coord_offset);
-                    prev_y = 0;
-                }
-                else if (!region_sorted && y < prev_y) {
-                        cerr << "ERROR: The file is not sorted according to y-coordinate. See "
-                             << "options --region-sorted or --unsorted." << endl;
-                        return error();
-                }
+        if (!unsorted) { // Can we assume the file is sorted?
+            // If header prefix doesn't match the last one, signal "end of group" (tile)
+            if (memcmp(headerbuf, read_id, hf.start_to_coord_offset) != 0) {
+                group++;
+                memcpy(read_id, headerbuf, hf.start_to_coord_offset);
+                prev_y = 0;
+            }
+            else if (!region_sorted && y < prev_y) {
+                    cerr << "ERROR: The file is not sorted according to y-coordinate. See "
+                         << "options --region-sorted or --unsorted." << endl;
+                    return error();
+            }
+        }
+        else {
+            const string id_str(headerbuf, hf.start_to_coord_offset);
+            map<string, int>::iterator location = unsorted_mode_group.find(id_str);
+            if (location == unsorted_mode_group.end()) {
+                unsorted_mode_group[id_str] = group = ++unsorted_mode_group_counter; 
             }
             else {
-                const string id_str(headerbuf, start_to_coord_offset);
-                map<string, int>::iterator location = unsorted_mode_group.find(id_str);
-                if (location == unsorted_mode_group.end()) {
-                    unsorted_mode_group[id_str] = group = ++unsorted_mode_group_counter; 
-                }
-                else {
-                    group = location->second;
-                }
+                group = location->second;
             }
-            prev_y = y;
-
-            if (num_read >= 1 + str_len + str_start) {
-                for (int bp=0; bp<zero_num; ++bp) zero_start[bp] = 0;
-                // Use ID string up to after the y coordinate, so we null-terminate it
-#ifdef OUTPUT_READ_ID
-                size_t id_len = ptr - headerbuf - 1;
-                analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, sequence_buf.data);
-#else
-                analysisHead.enterPoint(group, x, y, sequence_buf.data);
-#endif
-            }
-
-            if (analysisHead.metrics.num_reads % 1000000 == 0)
-                cerr << "Analysed " << setw(9) << analysisHead.metrics.num_reads
-                    << " reads." << endl;
         }
+        prev_y = y;
+
+        if (num_read >= 1 + str_len_per_read + str_start && 
+                ((input2 == nullptr) || r2_num_read >= 1 + str_len_per_read + str_start)) {
+            for (int i=0; i<str_len_per_read; ++i) sequence_buf.char_data[i] = databuffer1[i+str_start];
+            if (input2) {
+                for (int i=0; i<str_len_per_read; ++i)
+                    sequence_buf.char_data[i+str_len_per_read] = databuffer2[i+str_start];
+            }
+
+#ifdef OUTPUT_READ_ID
+            size_t id_len = ptr - headerbuf - 1;
+            analysisHead.enterPoint(group, x, y, headerbuf + 1, id_len, sequence_buf.data);
+#else
+            analysisHead.enterPoint(group, x, y, sequence_buf.data);
+#endif
+        }
+
+        first = false;
+
+        if (analysisHead.metrics.num_reads % 1000000 == 0)
+            cerr << "Analysed " << setw(9) << analysisHead.metrics.num_reads
+                << " reads." << endl;
     }
     return analysisHead.metrics;
 }
@@ -453,7 +499,7 @@ Metrics analysisLoop(
 // Input paramters, opening I/O streams, etc.
 
 void printUsage(const char* program_name) {
-    cerr << "usage: " << program_name << " [options] input_file [output_file] \n";
+    cerr << "usage: " << program_name << " [options] input_file_r1 [input_file_r2] \n";
 }
 
 class InputSelector {
@@ -464,12 +510,14 @@ class InputSelector {
         unique_ptr<istream> filtered_input;
         ifstream file_input;
         boost::iostreams::filtering_istream in;
+        boost::iostreams::stream<thread_source> tsstream;
 
     public:
         istream* input;
         bool valid;
 
-        InputSelector(const string& filename) {
+        InputSelector(const string& filename, bool multithreading)
+            : tsstream(thread_source(in, STREAM_BUFFER_SIZE), STREAM_BUFFER_SIZE) {
             // Disable sync with printf, etc.
             ios_base::sync_with_stdio(false);
             // Use a simple locale, for speed
@@ -502,7 +550,13 @@ class InputSelector {
             if (byte1 == 0x1f && byte2 == 0x8b) {
                 in.push(boost::iostreams::gzip_decompressor());
                 in.push(*raw_input);
-                input = &in;
+                if (multithreading) {
+                    tsstream->start();
+                    input = &tsstream;
+                }
+                else {
+                    input = &in;
+                }
             }
             else {
                 input = raw_input;
@@ -515,11 +569,11 @@ int main(int argc, char* argv[]) {
 
     // Main function: Reads arguments and calls analysisLoop
     
-    string inputfile("-"), outputfile("-");
+    string inputfile1, inputfile2;
     unsigned int winx, winy;
     int first_base, last_base = -1;
     size_t hash_bytes;
-    bool region_sorted, unsorted;
+    bool region_sorted, unsorted, single_thread;
 
     po::options_description visible("Allowed options");
     visible.add_options()
@@ -528,33 +582,34 @@ int main(int argc, char* argv[]) {
         ("winy,y", po::value<unsigned int>(&winy)->default_value(2500),
             "y coordinate window, +/- pixels")
         ("start,s", po::value<int>(&first_base)->default_value(10),
-            "First nucleotide position in reads to consider")
+            "First position in reads to consider")
         ("end,e", po::value<int>(&last_base)->default_value(60), 
-            "Last nucleotide position in reads to consider (use -1 for the end of the read)")
-        ("region-sorted,r", po::bool_switch(&region_sorted),
+            "Last position in reads to consider")
+        ("region-sorted,r", po::bool_switch(&single_thread),
             "Assume the input file is sorted by region (tile), but not by (y, x) coordinate "
             "within the region.")
         ("unsorted,u", po::bool_switch(&unsorted),
             "Process unsorted file (a large hash-size is recommended, see --hash-size). This "
             "mode requires all data to be stored in memory, and it is not well optimised.")
+        ("single,1", po::bool_switch(&single_thread), "Disable multithreading")
         ("hash-size", po::value<size_t>(&hash_bytes)->default_value(512*1024*8), 
             "Hash table size (bytes), must be a power of 2. (increase if winy>2500).")
         ("help,h", "Show this help message")
     ;
     po::options_description positionals("Positional options(hidden)");
     positionals.add_options()
-        ("input-file", po::value<string>(&inputfile)->required(),
-            "Input file, or - to read from STDIN")
-        ("output-file", po::value<string>(&outputfile),
-            "Output file, or - to write to STDOUT")
+        ("input-file-r1", po::value<string>(&inputfile1)->required(),
+            "Input file (R1), or - to read from STDIN")
+        ("input-file-r2", po::value<string>(&inputfile2),
+            "Read 2 input file (optional)")
     ;
     po::options_description all_options("Allowed options");
     all_options.add(visible);
     all_options.add(positionals);
 
     po::positional_options_description pos_desc;
-    pos_desc.add("input-file", 1);
-    pos_desc.add("output-file", 1);
+    pos_desc.add("input-file-r1", 1);
+    pos_desc.add("input-file-r2", 2);
 
     po::variables_map vm;
     try {
@@ -568,11 +623,11 @@ int main(int argc, char* argv[]) {
             cerr << "  Specify - for input_file to read from standard input.\n" << endl;
             return 0;
         }
-        else if (vm.count("input-file") != 1) {
-            cerr << "ERROR: Argument input_file is required." << endl;
+        else if (vm.count("input-file-r1") != 1) {
+            cerr << "ERROR: Argument input_file_r1 is required." << endl;
             printUsage(argv[0]);
             cerr << visible << '\n';
-            cerr << "  Specify - for input_file to read from stdin." << endl;
+            cerr << "Specify - for input_file_r1 to read from stdin." << endl;
             return 1;
         }
         else {
@@ -585,89 +640,72 @@ int main(int argc, char* argv[]) {
       printUsage(argv[0]);
       cerr << visible << endl; 
       return 1; 
-    } 
+    }
 
-    InputSelector isel(inputfile);
-
+    InputSelector isel(inputfile1, !single_thread);
     if (!isel.valid) {
-        if (inputfile == "-") {
+        if (inputfile1 == "-") {
             cerr << "ERROR: Cannot open standard input: " << strerror(errno) << "\n";
         }
         else {
-            cerr << "ERROR: Cannot open file " << inputfile << ": " << strerror(errno) << "\n";
+            cerr << "ERROR: Cannot open file " << inputfile1 << ": " << strerror(errno) << "\n";
         }
         return 1;
     }
+    istream&input = *isel.input;
 
-    cerr << "-- suprDUPr v1.0 --\n";
-
-    ostream* output_ptr = &cout;
-    ofstream output_file;
-    if (vm.count("output-file") > 0) {
-        output_file.open(vm["output-file"].as<string>(), ios_base::out);
-        output_ptr = &output_file;
+    istream* input2 = nullptr;
+    if (vm.count("input-file-r2") == 1) {
+        InputSelector* iselr2 = new InputSelector(inputfile2, !single_thread);
+        if (!iselr2->valid) {
+            cerr << "ERROR: Cannot open file " << inputfile2 << ": " << strerror(errno) << "\n";
+            return 1;
+        }
+        input2 = iselr2->input;
     }
 
-    istream&input = *isel.input;
-    ostream&output = *output_ptr;
+    cerr << "-- suprDUPr v1.3 --\n";
 
-    string header, sequence;
-
-    getline(input, header);
-    getline(input, sequence);
-
-    size_t seq_len = sequence.size();
-    // Read index within the sequence string (i.e. nucleotide position)
-    if (last_base == -1) last_base = seq_len;
-    size_t str_len = min(seq_len - first_base, (size_t)(last_base - first_base));
-
-    cerr << "Using nucleotide positions from " << first_base << " to "
-         << first_base+str_len << endl;
+    size_t str_len_per_read = (size_t)(last_base - first_base);
 
     // Call the correct analysis loop for the specified string length
     // All these versions of the analysis loop are compiled as separate 
     // function, but only one is used for a given set of input parameters.
     Metrics result;
-    if (str_len > 160) {
-        cerr << "ERROR: Sorry, strings longer than 160 bytes are not supported "
-            << "(use parameters --start, --end)" << endl;
+
+    size_t total_str_len;
+    if (input2) {
+        total_str_len = str_len_per_read*2;
+        cerr << "Using positions from " << first_base << " to "
+             << first_base+str_len_per_read << " in each of read 1 "
+             << "and read 2." << endl;
+    }
+    else {
+        cerr << "Using positions from " << first_base << " to "
+             << first_base+str_len_per_read << endl;
+        total_str_len = str_len_per_read;
+    }
+
+
+    if (total_str_len > 320) {
+        cerr << "ERROR: Sorry, strings longer than 320 characters, or 160 for PE "
+            << "data, are not supported (check parameters --start, --end)" << endl;
         return 1;
     }
-    else if (str_len > 128) {
-        result = analysisLoop<TwoBitSequence<5>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 96) {
-        result = analysisLoop<TwoBitSequence<4>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 64) {
-        result = analysisLoop<TwoBitSequence<3>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 32) {
-        result = analysisLoop<TwoBitSequence<2>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
-    else if (str_len > 0) {
-        result = analysisLoop<TwoBitSequence<1>>(
-                output,
-                hash_bytes, first_base, str_len, winx, winy, region_sorted, unsorted,
-                input, header, sequence
-                );
-    }
+#define callAnalysisLoop(size) result = analysisLoop<TwoBitSequence<size>>(\
+                cout, hash_bytes, first_base, str_len_per_read, winx, winy,\
+                region_sorted, unsorted, input, input2\
+                )
+    else if (total_str_len > 288) callAnalysisLoop(10);
+    else if (total_str_len > 256) callAnalysisLoop(9);
+    else if (total_str_len > 224) callAnalysisLoop(8);
+    else if (total_str_len > 192) callAnalysisLoop(7);
+    else if (total_str_len > 160) callAnalysisLoop(6);
+    else if (total_str_len > 128) callAnalysisLoop(5);
+    else if (total_str_len > 96) callAnalysisLoop(4);
+    else if (total_str_len > 64) callAnalysisLoop(3);
+    else if (total_str_len > 32) callAnalysisLoop(2);
+    else if (total_str_len > 0) callAnalysisLoop(1);
     else {
         cerr << "ERROR: Zero length sequence to compare. Perhaps the format of "
             << "the file was not understood."<< endl;
@@ -677,12 +715,12 @@ int main(int argc, char* argv[]) {
     if (result.error) {
         return 1; // error flag
     }
-    else if (input.eof() && output.good()) {
+    else if (input.eof() && cout.good()) {
         cerr << "Completed. Analysed " << result.num_reads << " records." << endl;
 #ifdef OUTPUT_READ_ID
         ostream& statsstream = cerr;
 #else
-        ostream& statsstream = output;
+        ostream& statsstream = cout;
 #endif
         statsstream << "NUM_READS\tREADS_WITH_DUP\tDUP_RATIO\n";
         statsstream << result.num_reads 

@@ -7,6 +7,7 @@ do
 	if [[ $1 == "-1" ]]
 	then
 		single_read=true
+        shift
 	elif [[ $1 == -* ]]
 	then
 		supr_args+=($1)
@@ -20,11 +21,37 @@ if $single_read
 then
 	r1file="$1"
 	r1output="$2"
+    last="$2"
+    toomany="$3"
 else
 	r1file="$1"
 	r1output="$3"
 	r2file="$2"
 	r2output="$4"
+    last="$4"
+    toomany="$5"
+fi
+
+if [[ -z "$last" ]]
+then
+	echo ""
+	echo "usage PE: filter.sh [SUPR_OPTIONS] R1_FILE R2_FILE R1_OUTPUT R2_OUTPUT"
+	echo ""
+	echo "      SR: filter.sh -1 [SUPR_OPTIONS] R1_FILE R1_OUTPUT"
+	echo ""
+	echo ""
+	exit 1
+fi
+
+if [[ ! -z "$toomany" ]]
+then
+	echo ""
+	echo "usage PE: filter.sh [SUPR_OPTIONS] R1_FILE R2_FILE R1_OUTPUT R2_OUTPUT"
+	echo ""
+	echo "      SR: filter.sh -1 [SUPR_OPTIONS] R1_FILE R1_OUTPUT"
+	echo ""
+	echo ""
+	exit 1
 fi
 
 if [[ ! -f "$r1file" ]]
@@ -33,24 +60,16 @@ then
 	exit 1
 fi
 
-if [[ -z "$1" ]]
-then
-	echo ""
-	echo "usage: filter-pe.sh [-1] [SUPR_OPTIONS] R1_FILE [R2_FILE] R1_OUTPUT [R2_OUTPUT]"
-	echo ""
-	echo "       Use option -1 to process single-read data."
-	echo ""
-	exit 1
-fi
+DIR=$(dirname "$0")
 
-if $single_read;
+if $single_read
 then
-	./suprDUPr.read_id ${supr_args[*]} "$r1file" | ./filter-dups.pl "$r1file" > "$r1output"
+	$DIR/suprDUPr.read_id ${supr_args[*]} "$r1file" | $DIR/filterfq "$r1file" > "$r1output"
 else
 	read_id_fifo=`mktemp -u`_readidfifo
 	mkfifo $read_id_fifo
-	./suprDUPr.read_id ${supr_args[*]} "$r1file" | tee $read_id_fifo | ./filterfq "$r1file" > "$r1output" &
-	./filterfq "$r2file" > "$r2output" < $read_id_fifo &
+	$DIR/suprDUPr.read_id ${supr_args[*]} "$r1file" | tee $read_id_fifo | $DIR/filterfq "$r1file" > "$r1output" &
+	$DIR/filterfq "$r2file" > "$r2output" < $read_id_fifo &
 	wait
 	rm $read_id_fifo
 fi
