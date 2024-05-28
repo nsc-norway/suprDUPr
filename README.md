@@ -209,6 +209,10 @@ longer needed. Keep in mind that a shorter matching string length per read
 twice as long when running on PE data.
 
 
+## Docker
+
+See the Packages for this repository for an automatically built docker image.
+
 ## How to compile the program
 
 make, and a compiler compatible with C++11 are required to build the program. Furthermore, it relies
