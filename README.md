@@ -332,3 +332,17 @@ If you find a bug, we would greatly appreciate if you submit an issue on Github.
 ## Publications
 
 None so far.
+
+
+## Static build / make release
+
+To make a new release you can use the static builder dockerfile, based on Alpine Linux:
+
+```
+docker build -t suprdupr-builder - <  Dockerfile_static_builder
+docker run --rm -v $PWD:$PWD -w $PWD suprdupr-builder sh make_release.sh
+```
+
+It creates suprDUPr.tar.gz.
+
+

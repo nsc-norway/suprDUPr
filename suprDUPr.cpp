@@ -540,28 +540,35 @@ class InputSelector {
 
             (*raw_input) >> byte1 >> byte2;
 
-            if ( !raw_input->good() ) {
-                valid = false;
-                return;
-            }
-            raw_input->putback(byte2);
-            raw_input->putback(byte1);
+            if ( raw_input->good() ) {
+                raw_input->putback(byte2);
+                raw_input->putback(byte1);
 
-            if (byte1 == 0x1f && byte2 == 0x8b) {
-                in.push(boost::iostreams::gzip_decompressor());
-                in.push(*raw_input);
-                if (multithreading) {
-                    tsstream->start();
-                    input = &tsstream;
+                if (byte1 == 0x1f && byte2 == 0x8b) {
+                    in.push(boost::iostreams::gzip_decompressor());
+                    in.push(*raw_input);
+                    if (multithreading) {
+                        tsstream->start();
+                        input = &tsstream;
+                    }
+                    else {
+                        input = &in;
+                    }
                 }
                 else {
-                    input = &in;
+                    input = raw_input;
                 }
+                valid = true;            
             }
             else {
-                input = raw_input;
+                if ((raw_input)->eof()) { // Empty file is now a valid input
+                    valid = true;
+                    input = raw_input;
+                }
+                else {
+                    valid = false;
+                }
             }
-            valid = true;
         }
 };
 
