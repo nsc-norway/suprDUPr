@@ -6,7 +6,7 @@ COPY * .
 RUN make all
 
 FROM rockylinux:9 AS RUNNER
-RUN yum install -y boost-{iostreams,program-options} && yum clean all
+RUN yum install -y boost-{iostreams,program-options} procps && yum clean all
 COPY --from=BUILDER /suprdupr/suprDUPr /usr/bin/suprDUPr
 COPY --from=BUILDER /suprdupr/suprDUPr.read_id /usr/bin/suprDUPr.read_id
 COPY --from=BUILDER /suprdupr/filterfq /usr/bin/filterfq
