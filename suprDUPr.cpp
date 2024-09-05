@@ -573,7 +573,7 @@ int main(int argc, char* argv[]) {
     unsigned int winx, winy;
     int first_base, last_base = -1;
     size_t hash_bytes;
-    bool region_sorted, unsorted, single_thread;
+    bool region_sorted, unsorted, single_thread, empty_file = false;
 
     po::options_description visible("Allowed options");
     visible.add_options()
@@ -664,6 +664,10 @@ int main(int argc, char* argv[]) {
         input2 = iselr2->input;
     }
 
+    // Empty file is a valid input; output zeros
+    input.peek();
+    empty_file = input.eof();
+
     cerr << "-- suprDUPr v1.3 --\n";
 
     size_t str_len_per_read = (size_t)(last_base - first_base);
@@ -687,7 +691,10 @@ int main(int argc, char* argv[]) {
     }
 
 
-    if (total_str_len > 320) {
+    if (empty_file) {
+        result.error = false; // Non-error null result
+    }
+    else if (total_str_len > 320) {
         cerr << "ERROR: Sorry, strings longer than 320 characters, or 160 for PE "
             << "data, are not supported (check parameters --start, --end)" << endl;
         return 1;
@@ -740,6 +747,4 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 }
-
-
 
